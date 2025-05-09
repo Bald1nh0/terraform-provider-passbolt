@@ -1,4 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 package main
@@ -8,20 +7,10 @@ import (
 	"flag"
 	"log"
 
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-
 	"terraform-provider-passbolt/internal/provider"
+
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
-
-// Run "go generate" to format example terraform files and generate the docs for the registry/website
-
-// If you do not have terraform installed, you can remove the formatting command, but its suggested to
-// ensure the documentation is formatted properly.
-//go:generate terraform fmt -recursive ./examples/
-
-// Run the docs generation tool, check its repository for more information on how it works and how docs
-// can be customized.
-//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate -provider-name scaffolding
 
 var (
 	// these will be set by the goreleaser configuration
@@ -39,17 +28,12 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		// NOTE: This is not a typical Terraform Registry provider address,
-		// such as registry.terraform.io/hashicorp/hashicups. This specific
-		// provider address is used in these tutorials in conjunction with a
-		// specific Terraform CLI configuration for manual development testing
-		// of this provider.
+		// Use your registry address:
 		Address: "registry.terraform.io/opaas-cloud/passbolt",
 		Debug:   debug,
 	}
 
 	err := providerserver.Serve(context.Background(), provider.New(version), opts)
-
 	if err != nil {
 		log.Fatal(err.Error())
 	}

@@ -68,29 +68,37 @@ func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "The UUID of the Passbolt password/secret resource.",
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "Name for identifying the password/secret in Passbolt.",
 			},
 			"description": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "Free-form description for this password/secret.",
 			},
 			"username": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "Username or login for the password/secret entry.",
 			},
 			"uri": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "A URI or reference where this password is used (e.g., https://service.example.com).",
 			},
 			"share_group": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "Name of Passbolt group to share this secret with. Optional: omit to leave unshared.",
 			},
 			"folder_parent": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "Name of an existing folder in Passbolt to place this secret in. Optional.",
 			},
 			"password": schema.StringAttribute{
-				Required:  true,
-				Sensitive: true,
+				Required:    true,
+				Sensitive:   true,
+				Description: "The password or secret value. (Sensitive, will not be displayed in Terraform output.)",
 			},
 		},
 	}

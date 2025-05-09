@@ -3,12 +3,13 @@ package provider
 import (
 	"context"
 	"fmt"
+	"terraform-provider-passbolt/tools"
+
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/passbolt/go-passbolt/api"
-	"terraform-provider-passbolt/tools"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -64,18 +65,22 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "The UUID of the Passbolt folder.",
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "Name for the folder. Must be unique among sibling folders.",
 			},
 			"personal": schema.BoolAttribute{
-				Computed: true,
-				Optional: true,
-				Default:  booldefault.StaticBool(false),
+				Computed:    true,
+				Optional:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "Whether the folder is a personal folder. Computed; do not set manually.",
 			},
 			"folder_parent": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "Name of the parent folder to create this one under. If omitted, creates a top-level folder.",
 			},
 		},
 	}

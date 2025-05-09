@@ -53,14 +53,17 @@ func (p *passboltProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"base_url": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "Base URL for the Passbolt instance. Can also be provided via `PASSBOLT_URL` environment variable.",
 			},
 			"private_key": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "ASCII-armored PGP Private key of Passbolt user. Can also be provided via `PASSBOLT_KEY` env var.",
 			},
 			"passphrase": schema.StringAttribute{
-				Required:  true,
-				Sensitive: true,
+				Required:    true,
+				Sensitive:   true,
+				Description: "Passphrase for the user's private key. Can also be provided via `PASSBOLT_PASS` environment variable.",
 			},
 		},
 	}
@@ -196,5 +199,6 @@ func (p *passboltProvider) Resources(_ context.Context) []func() resource.Resour
 	return []func() resource.Resource{
 		NewFolderResource,
 		NewPasswordResource,
+		NewFolderPermissionResource,
 	}
 }

@@ -3,10 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"terraform-provider-passbolt/tools"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"terraform-provider-passbolt/tools"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -66,34 +67,44 @@ func (d *foldersDataSource) Metadata(_ context.Context, req datasource.MetadataR
 // Schema defines the schema for the data source.
 func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure or as a lookup for folder relationships in other resources.",
 		Attributes: map[string]schema.Attribute{
 			"folders": schema.ListNestedAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "List of folders in Passbolt account.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"id": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "UUID of the folder.",
 						},
 						"name": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "Name of the Passbolt folder.",
 						},
 						"created": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "Creation timestamp (RFC3339).",
 						},
 						"modified": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "Last modified timestamp (RFC3339).",
 						},
 						"created_by": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "User ID that created the folder.",
 						},
 						"modified_by": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "User ID that last modified the folder.",
 						},
 						"folder_parent_id": schema.StringAttribute{
-							Required: true,
+							Required:    true,
+							Description: "UUID of parent folder (if any), or empty if top-level.",
 						},
 						"personal": schema.BoolAttribute{
-							Required: true,
+							Required:    true,
+							Description: "True if folder is a personal folder (not shared).",
 						},
 					},
 				},

@@ -63,28 +63,36 @@ func (d *passwordDataSource) Metadata(_ context.Context, req datasource.Metadata
 // Schema defines the schema for the data source.
 func (d *passwordDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Returns all metadata and the decrypted secret value.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "The Passbolt resource UUID (you can get it from the Passbolt UI or list of resources).",
 			},
 			"name": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Name of the password/secret in Passbolt.",
 			},
 			"description": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Description field for the secret.",
 			},
 			"username": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Username/login for this secret (if set).",
 			},
 			"uri": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "URI where the password is used, e.g., a service address.",
 			},
 			"folder_parent_id": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Parent folder's UUID containing this password/secret.",
 			},
 			"password": schema.StringAttribute{
-				Computed:  true,
-				Sensitive: true,
+				Computed:    true,
+				Sensitive:   true,
+				Description: "The **actual secret value** (Sensitive, will not be displayed in UI/logs).",
 			},
 		},
 	}
