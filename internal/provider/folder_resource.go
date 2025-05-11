@@ -144,13 +144,85 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 }
 
 // Read refreshes the Terraform state with the latest data.
-func (r *folderResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
+func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state foldersModelCreate
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	folders, err := r.client.Client.GetFolders(ctx, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot get folders", err.Error())
+
+		return
+	}
+
+	for _, f := range folders {
+		if f.ID == state.ID.ValueString() {
+			state.Name = types.StringValue(f.Name)
+			state.ID = types.StringValue(f.ID)
+
+			if f.FolderParentID == "" {
+				state.FolderParent = types.StringNull()
+			} else {
+				state.FolderParent = types.StringValue(f.FolderParentID)
+			}
+
+			state.Personal = types.BoolValue(f.Personal)
+
+			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+
+			return
+		}
+	}
+
+	resp.State.RemoveResource(ctx)
 }
 
-// Update updates the resource and sets the updated Terraform state on success.
-func (r *folderResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
+func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan foldersModelCreate
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var state foldersModelCreate
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	_, err := r.client.Client.UpdateFolder(ctx, state.ID.ValueString(), api.Folder{
+		Name: plan.Name.ValueString(),
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot update folder", err.Error())
+
+		return
+	}
+
+	plan.ID = state.ID
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-// Delete deletes the resource and removes the Terraform state on success.
-func (r *folderResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
+func (r *folderResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state foldersModelCreate
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	err := r.client.Client.DeleteFolder(ctx, state.ID.ValueString())
+	if err != nil {
+		// Возможно, ресурс уже удалён — это не ошибка
+		if !isNotFoundError(err) {
+			resp.Diagnostics.AddError("Error deleting folder", err.Error())
+		}
+	}
+}
+
+func isNotFoundError(err error) bool {
+	return err != nil && (err.Error() == "The folder does not exist." || err.Error() == "The resource does not exist.")
 }

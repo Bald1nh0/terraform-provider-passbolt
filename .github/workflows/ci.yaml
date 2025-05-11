@@ -13,6 +13,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Send Telegram Message
+        run: |
+          MSG="🚀 New push to *${{ github.ref_name }}* by [${{ github.actor }}](https://github.com/${{ github.actor }})\n[View Commit »](${{ github.event.head_commit.url }})"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

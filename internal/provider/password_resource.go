@@ -132,42 +132,41 @@ func (r *passwordResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	if !plan.ShareGroup.IsUnknown() && !plan.FolderParent.IsNull() {
+	plan.ID = types.StringValue(resourceID)
+
+	if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
 		shareResourceWithGroup(ctx, r.client, plan.ShareGroup.ValueString(), resourceID, &resp.Diagnostics)
 	}
 
-	plan.ID = types.StringValue(resourceID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
+// resolveFolderId can now match both name and UUID
 func resolveFolderID(
 	ctx context.Context,
 	client *tools.PassboltClient,
-	folder types.String,
-) (
-	string,
-	diag.Diagnostics,
-) {
+	folder types.String) (string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	if folder.IsUnknown() || folder.IsNull() {
 		return "", diags
 	}
 
-	available, err := client.Client.GetFolders(ctx, nil)
+	value := folder.ValueString()
+	folders, err := client.Client.GetFolders(ctx, nil)
 	if err != nil {
 		diags.AddError("Cannot get folders", err.Error())
 
 		return "", diags
 	}
 
-	for _, f := range available {
-		if f.Name == folder.ValueString() {
+	for _, f := range folders {
+		if f.ID == value || f.Name == value {
 			return f.ID, diags
 		}
 	}
 
-	diags.AddError("Folder not found", fmt.Sprintf("Folder with name '%s' not found", folder.ValueString()))
+	diags.AddError("Folder not found", fmt.Sprintf("Folder with name or ID '%s' not found", value))
 
 	return "", diags
 }
@@ -204,6 +203,57 @@ func shareResourceWithGroup(
 	diags.AddError("Group not found", fmt.Sprintf("Group with name '%s' not found", groupName))
 }
 
+func buildPasswordState(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	id string,
+	existing passwordModel,
+) (passwordModel, diag.Diagnostics) {
+	var state passwordModel
+	var diags diag.Diagnostics
+
+	folderID, name, username, uri, password, description, err := helper.GetResource(ctx, client.Client, id)
+	if err != nil {
+		diags.AddError("Cannot read resource", err.Error())
+
+		return state, diags
+	}
+
+	state.ID = types.StringValue(id)
+	state.Name = types.StringValue(name)
+	state.Username = types.StringValue(username)
+	state.URI = types.StringValue(uri)
+
+	if password != "" {
+		state.Password = types.StringValue(password)
+	} else if existing.Password.IsUnknown() || existing.Password.IsNull() {
+		state.Password = types.StringNull()
+	} else {
+		state.Password = existing.Password
+	}
+
+	if description == "" {
+		state.Description = types.StringNull()
+	} else {
+		state.Description = types.StringValue(description)
+	}
+
+	if folderID == "" {
+		state.FolderParent = types.StringNull()
+	} else {
+		state.FolderParent = types.StringValue(folderID)
+	}
+
+	if existing.ShareGroup.IsUnknown() || existing.ShareGroup.IsNull() || existing.ShareGroup.ValueString() == "" {
+		state.ShareGroup = types.StringNull()
+	} else {
+		state.ShareGroup = existing.ShareGroup
+	}
+
+	return state, diags
+}
+
+// Read retrieves the current state of the resource from Passbolt.
 func (r *passwordResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state passwordModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -211,22 +261,13 @@ func (r *passwordResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	folderID, name, username, uri, password, description, err := helper.GetResource(
-		ctx, r.client.Client, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Cannot read resource", err.Error())
-
+	newState, diags := buildPasswordState(ctx, r.client, state.ID.ValueString(), state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	state.Name = types.StringValue(name)
-	state.Username = types.StringValue(username)
-	state.URI = types.StringValue(uri)
-	state.Password = types.StringValue(password)
-	state.Description = types.StringValue(description)
-	state.FolderParent = types.StringValue(folderID)
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &newState)...)
 }
 
 func (r *passwordResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -242,16 +283,57 @@ func (r *passwordResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	if err := r.client.Client.DeleteResource(ctx, state.ID.ValueString()); err != nil {
-		resp.Diagnostics.AddError("Error deleting resource", err.Error())
+	if diags := updateResourceFields(ctx, r, plan, state); diags.HasError() {
+		resp.Diagnostics.Append(diags...)
 
 		return
 	}
 
-	r.Create(ctx, resource.CreateRequest{Plan: req.Plan}, &resource.CreateResponse{
-		Diagnostics: resp.Diagnostics,
-		State:       resp.State,
-	})
+	plan.ID = state.ID // preserve original ID
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+}
+
+func updateResourceFields(
+	ctx context.Context,
+	r *passwordResource,
+	plan passwordModel,
+	state passwordModel,
+) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	err := helper.UpdateResource(
+		ctx,
+		r.client.Client,
+		state.ID.ValueString(),
+		plan.Name.ValueString(),
+		plan.Username.ValueString(),
+		plan.URI.ValueString(),
+		plan.Password.ValueString(),
+		plan.Description.ValueString(),
+	)
+	if err != nil {
+		diags.AddError("Error updating resource", err.Error())
+
+		return diags
+	}
+
+	// Handle folder move
+	if !plan.FolderParent.IsUnknown() && plan.FolderParent.ValueString() != state.FolderParent.ValueString() {
+		newFolderID, folderDiags := resolveFolderID(ctx, r.client, plan.FolderParent)
+		diags.Append(folderDiags...)
+		if !diags.HasError() {
+			if moveErr := r.client.Client.MoveResource(ctx, state.ID.ValueString(), newFolderID); moveErr != nil {
+				diags.AddError("Error moving resource to folder", moveErr.Error())
+			}
+		}
+	}
+
+	// Handle re-sharing
+	if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
+		shareResourceWithGroup(ctx, r.client, plan.ShareGroup.ValueString(), state.ID.ValueString(), &diags)
+	}
+
+	return diags
 }
 
 func (r *passwordResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

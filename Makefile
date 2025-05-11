@@ -14,7 +14,7 @@ build:
 
 install: build
 	mkdir -p $(PLUGIN_PATH)
-	cp $(BINARY_NAME)_v$(VERSION) $(PLUGIN_PATH)/
+	mv $(BINARY_NAME)_v$(VERSION) $(PLUGIN_PATH)/
 	chmod +x $(PLUGIN_PATH)/$(BINARY_NAME)_v$(VERSION)
 	@echo "✅ Installed to $(PLUGIN_PATH)"
 
@@ -22,7 +22,7 @@ lint:
 	golangci-lint run
 
 test:
-	go test ./... -v
+	TF_ACC=1 go test ./... -v
 
 generate:
 	cd tools && go generate ./...

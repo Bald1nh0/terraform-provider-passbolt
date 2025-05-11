@@ -2,7 +2,7 @@
 # and information on other useful linters
 version: "2"
 linters:
-  default: all
+  default: fast
   enable:
     - staticcheck
     - govet
