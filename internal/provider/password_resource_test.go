@@ -30,55 +30,56 @@ func TestAccPasswordResource_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
-			// Step 1: Create
-			{
-				Config: fmt.Sprintf(`
-provider "passbolt" {
-  base_url    = "%s"
-  private_key = <<EOF
-%s
-EOF
-  passphrase  = "%s"
-}
-
-resource "passbolt_password" "example" {
-  name     = "acc-test"
-  username = "user"
-  uri      = "https://example.com"
-  password = "super-secret"
-}
-`, baseURL, privateKey, passphrase),
-				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr("passbolt_password.example", "name", "acc-test"),
-					resource.TestCheckResourceAttr("passbolt_password.example", "username", "user"),
-					resource.TestCheckResourceAttr("passbolt_password.example", "uri", "https://example.com"),
-				),
-			},
-
-			// Step 2: Update
-			{
-				Config: fmt.Sprintf(`
-provider "passbolt" {
-  base_url    = "%s"
-  private_key = <<EOF
-%s
-EOF
-  passphrase  = "%s"
-}
-
-resource "passbolt_password" "example" {
-  name     = "acc-test-updated"
-  username = "updated-user"
-  uri      = "https://example.org"
-  password = "new-secret"
-}
-`, baseURL, privateKey, passphrase),
-				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr("passbolt_password.example", "name", "acc-test-updated"),
-					resource.TestCheckResourceAttr("passbolt_password.example", "username", "updated-user"),
-					resource.TestCheckResourceAttr("passbolt_password.example", "uri", "https://example.org"),
-				),
-			},
+			testStepCreatePassword(baseURL, privateKey, passphrase),
+			testStepUpdatePassword(baseURL, privateKey, passphrase),
 		},
 	})
+}
+
+func testStepCreatePassword(baseURL, privateKey, passphrase string) resource.TestStep {
+	return resource.TestStep{
+		Config: testPasswordConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			"acc-test", "user", "https://example.com", "super-secret"),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_password.example", "name", "acc-test"),
+			resource.TestCheckResourceAttr("passbolt_password.example", "username", "user"),
+			resource.TestCheckResourceAttr("passbolt_password.example", "uri", "https://example.com"),
+		),
+	}
+}
+
+func testStepUpdatePassword(baseURL, privateKey, passphrase string) resource.TestStep {
+	return resource.TestStep{
+		Config: testPasswordConfig(baseURL,
+			privateKey,
+			passphrase,
+			"acc-test-updated", "updated-user", "https://example.org", "new-secret"),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_password.example", "name", "acc-test-updated"),
+			resource.TestCheckResourceAttr("passbolt_password.example", "username", "updated-user"),
+			resource.TestCheckResourceAttr("passbolt_password.example", "uri", "https://example.org"),
+		),
+	}
+}
+
+func testPasswordConfig(baseURL, privateKey, passphrase, name, username, uri, password string) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_password" "example" {
+  name     = "%s"
+  username = "%s"
+  uri      = "%s"
+  password = "%s"
+}
+`, baseURL, privateKey, passphrase, name, username, uri, password)
 }
