@@ -32,13 +32,16 @@ type passwordDataSourceModel struct {
 	Name           types.String `tfsdk:"name"`
 	Description    types.String `tfsdk:"description"`
 	Username       types.String `tfsdk:"username"`
-	Uri            types.String `tfsdk:"uri"`
+	URI            types.String `tfsdk:"uri"`
 	FolderParentID types.String `tfsdk:"folder_parent_id"`
 	Password       types.String `tfsdk:"password"`
 }
 
 // Configure adds the provider configured client to the data source.
-func (d *passwordDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *passwordDataSource) Configure(_ context.Context,
+	req datasource.ConfigureRequest,
+	resp *datasource.ConfigureResponse,
+) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -47,8 +50,12 @@ func (d *passwordDataSource) Configure(_ context.Context, req datasource.Configu
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *passboltClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf(
+				"Expected *passboltClient, got: %T. Please report this issue to the provider developers.",
+				req.ProviderData,
+			),
 		)
+
 		return
 	}
 
@@ -56,14 +63,19 @@ func (d *passwordDataSource) Configure(_ context.Context, req datasource.Configu
 }
 
 // Metadata returns the data source type name.
-func (d *passwordDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *passwordDataSource) Metadata(
+	_ context.Context,
+	req datasource.MetadataRequest,
+	resp *datasource.MetadataResponse,
+) {
 	resp.TypeName = req.ProviderTypeName + "_password"
 }
 
 // Schema defines the schema for the data source.
 func (d *passwordDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Returns all metadata and the decrypted secret value.",
+		Description: "Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation " +
+			"or outputting secrets to other modules. Returns all metadata and the decrypted secret value.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Required:    true,
@@ -104,17 +116,22 @@ func (d *passwordDataSource) Read(ctx context.Context, req datasource.ReadReques
 	diag := req.Config.Get(ctx, &data)
 	resp.Diagnostics.Append(diag...)
 
-	folderParentID, name, username, uri, password, description, err := helper.GetResource(d.client.Context, d.client.Client, data.ID.ValueString())
+	folderParentID, name, username, uri, password, description, err := helper.GetResource(
+		ctx,
+		d.client.Client,
+		data.ID.ValueString(),
+	)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read resource "+data.ID.ValueString(), err.Error(),
 		)
+
 		return
 	}
 
 	data.Name = types.StringValue(name)
 	data.Description = types.StringValue(description)
-	data.Uri = types.StringValue(uri)
+	data.URI = types.StringValue(uri)
 	data.Username = types.StringValue(username)
 	data.FolderParentID = types.StringValue(folderParentID)
 	data.Password = types.StringValue(password)

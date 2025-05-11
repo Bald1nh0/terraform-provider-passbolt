@@ -1,7 +1,9 @@
+// Package provider implements Terraform resources for Passbolt.
 package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"terraform-provider-passbolt/tools"
@@ -18,6 +20,7 @@ var (
 	_ resource.ResourceWithConfigure = &folderPermissionResource{}
 )
 
+// NewFolderPermissionResource returns a Terraform resource for managing Passbolt folder permissions.
 func NewFolderPermissionResource() resource.Resource {
 	return &folderPermissionResource{}
 }
@@ -34,7 +37,11 @@ type folderPermissionModel struct {
 }
 
 // Provide client
-func (r *folderPermissionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *folderPermissionResource) Configure(
+	_ context.Context,
+	req resource.ConfigureRequest,
+	resp *resource.ConfigureResponse,
+) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -43,18 +50,27 @@ func (r *folderPermissionResource) Configure(_ context.Context, req resource.Con
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
 			fmt.Sprintf("Expected *PassboltClient, got: %T.", req.ProviderData))
+
 		return
 	}
 	r.client = client
 }
 
 // Metadata for resource
-func (r *folderPermissionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *folderPermissionResource) Metadata(
+	_ context.Context,
+	req resource.MetadataRequest,
+	resp *resource.MetadataResponse,
+) {
 	resp.TypeName = req.ProviderTypeName + "_folder_permission"
 }
 
 // Schema
-func (r *folderPermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *folderPermissionResource) Schema(
+	_ context.Context,
+	_ resource.SchemaRequest,
+	resp *resource.SchemaResponse,
+) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -78,7 +94,11 @@ func (r *folderPermissionResource) Schema(_ context.Context, _ resource.SchemaRe
 }
 
 // Create
-func (r *folderPermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (r *folderPermissionResource) Create(
+	ctx context.Context,
+	req resource.CreateRequest,
+	resp *resource.CreateResponse,
+) {
 	var plan folderPermissionModel
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
@@ -86,15 +106,17 @@ func (r *folderPermissionResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	groupId, err := getGroupIdByName(ctx, r.client, plan.GroupName.ValueString())
+	groupID, err := getgroupIDByName(ctx, r.client, plan.GroupName.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Group Not Found", err.Error())
+
 		return
 	}
 
 	permInt, err := permissionStringToInt(plan.Permission.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Permission Mapping Error", err.Error())
+
 		return
 	}
 
@@ -103,11 +125,12 @@ func (r *folderPermissionResource) Create(ctx context.Context, req resource.Crea
 		r.client.Client,
 		plan.FolderID.ValueString(),
 		nil,
-		[]string{groupId},
+		[]string{groupID},
 		permInt,
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot share folder (helper)", err.Error())
+
 		return
 	}
 
@@ -124,14 +147,22 @@ func (r *folderPermissionResource) Read(ctx context.Context, req resource.ReadRe
 }
 
 // Update - force recreation
-func (r *folderPermissionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *folderPermissionResource) Update(
+	ctx context.Context,
+	req resource.UpdateRequest,
+	resp *resource.UpdateResponse,
+) {
 	var state folderPermissionModel
 	req.State.Get(ctx, &state)
 	resp.State.Set(ctx, &state)
 }
 
 // Delete (revoke sharing)
-func (r *folderPermissionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (r *folderPermissionResource) Delete(
+	ctx context.Context,
+	req resource.DeleteRequest,
+	resp *resource.DeleteResponse,
+) {
 	var state folderPermissionModel
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -139,9 +170,10 @@ func (r *folderPermissionResource) Delete(ctx context.Context, req resource.Dele
 		return
 	}
 
-	groupId, err := getGroupIdByName(ctx, r.client, state.GroupName.ValueString())
+	groupID, err := getgroupIDByName(ctx, r.client, state.GroupName.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Group Not Found In Delete", err.Error())
+
 		return
 	}
 	// ShareFolderWithUsersAndGroups with perm=-1 – remove all permissions
@@ -150,18 +182,24 @@ func (r *folderPermissionResource) Delete(ctx context.Context, req resource.Dele
 		r.client.Client,
 		state.FolderID.ValueString(),
 		nil,
-		[]string{groupId},
+		[]string{groupID},
 		-1,
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to unshare folder", err.Error())
+
 		return
 	}
 }
 
 // ----------------- Helpers ------------------
 
-func getGroupIdByName(ctx context.Context, client *tools.PassboltClient, groupName string) (string, error) {
+var (
+	errGroupNotFound     = errors.New("group not found")
+	errInvalidPermission = errors.New("invalid permission")
+)
+
+func getgroupIDByName(ctx context.Context, client *tools.PassboltClient, groupName string) (string, error) {
 	groups, err := client.Client.GetGroups(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to get groups: %w", err)
@@ -171,7 +209,8 @@ func getGroupIdByName(ctx context.Context, client *tools.PassboltClient, groupNa
 			return group.ID, nil
 		}
 	}
-	return "", fmt.Errorf("group '%s' not found", groupName)
+
+	return "", fmt.Errorf("%w: %q", errGroupNotFound, groupName)
 }
 
 func permissionStringToInt(perm string) (int, error) {
@@ -185,5 +224,6 @@ func permissionStringToInt(perm string) (int, error) {
 	case "delete":
 		return 8, nil
 	}
-	return 0, fmt.Errorf("invalid permission '%s' (must be read, update, owner, delete)", perm)
+
+	return 0, fmt.Errorf("%w: %q (must be read, update, owner, delete)", errInvalidPermission, perm)
 }

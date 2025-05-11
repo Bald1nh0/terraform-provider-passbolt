@@ -37,12 +37,16 @@ type foldersModel struct {
 	Modified       types.String `tfsdk:"modified"`
 	CreatedBy      types.String `tfsdk:"created_by"`
 	ModifiedBy     types.String `tfsdk:"modified_by"`
-	FolderParentId types.String `tfsdk:"folder_parent_id"`
+	FolderParentID types.String `tfsdk:"folder_parent_id"`
 	Personal       types.Bool   `tfsdk:"personal"`
 }
 
 // Configure adds the provider configured client to the data source.
-func (d *foldersDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *foldersDataSource) Configure(
+	_ context.Context,
+	req datasource.ConfigureRequest,
+	resp *datasource.ConfigureResponse,
+) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -51,8 +55,12 @@ func (d *foldersDataSource) Configure(_ context.Context, req datasource.Configur
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *passboltClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf(
+				"Expected *passboltClient, got: %T. Please report this issue to the provider developers.",
+				req.ProviderData,
+			),
 		)
+
 		return
 	}
 
@@ -60,14 +68,19 @@ func (d *foldersDataSource) Configure(_ context.Context, req datasource.Configur
 }
 
 // Metadata returns the data source type name.
-func (d *foldersDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *foldersDataSource) Metadata(
+	_ context.Context,
+	req datasource.MetadataRequest,
+	resp *datasource.MetadataResponse,
+) {
 	resp.TypeName = req.ProviderTypeName + "_folders"
 }
 
 // Schema defines the schema for the data source.
 func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure or as a lookup for folder relationships in other resources.",
+		Description: "Fetches all folders in Passbolt, including details like name, parent, " +
+			"timestamps, and ownership. Useful for discovering folder structure...",
 		Attributes: map[string]schema.Attribute{
 			"folders": schema.ListNestedAttribute{
 				Computed:    true,
@@ -117,11 +130,12 @@ func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 func (d *foldersDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state foldersDataSourceModel
 
-	folders, err := d.client.Client.GetFolders(d.client.Context, nil)
+	folders, err := d.client.Client.GetFolders(ctx, nil)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read folders", "",
 		)
+
 		return
 	}
 
@@ -134,7 +148,7 @@ func (d *foldersDataSource) Read(ctx context.Context, _ datasource.ReadRequest, 
 			Modified:       types.StringValue(folder.Modified.String()),
 			CreatedBy:      types.StringValue(folder.CreatedBy),
 			ModifiedBy:     types.StringValue(folder.ModifiedBy),
-			FolderParentId: types.StringValue(folder.FolderParentID),
+			FolderParentID: types.StringValue(folder.FolderParentID),
 			Personal:       types.BoolValue(folder.Personal),
 		}
 		state.Folders = append(state.Folders, folderState)

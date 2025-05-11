@@ -1,23 +1,26 @@
+// Package tools provides shared utilities for the Passbolt Terraform provider.
 package tools
 
 import (
 	"context"
 	"fmt"
+
 	"github.com/passbolt/go-passbolt/api"
 )
 
+// PassboltClient wraps the low-level API client and configuration.
 type PassboltClient struct {
 	Client     *api.Client
-	Url        string
+	URL        string
 	PrivateKey string
 	Password   string
-	Context    context.Context
 }
 
-func Login(client *PassboltClient) {
-	err := client.Client.Login(client.Context)
-	if err != nil {
-		return
+// Login authenticates the Passbolt client using its internal credentials.
+func Login(ctx context.Context, client *PassboltClient) error {
+	if err := client.Client.Login(ctx); err != nil {
+		return fmt.Errorf("login failed: %w", err)
 	}
-	fmt.Println("Logged in!")
+
+	return nil
 }

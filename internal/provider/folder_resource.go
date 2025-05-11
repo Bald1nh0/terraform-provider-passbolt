@@ -18,7 +18,7 @@ var (
 	_ resource.ResourceWithConfigure = &folderResource{}
 )
 
-// NewFolderResource is a helper function to simplify the provider implementation.
+// NewFolderResource returns interface a new instance of folderResource that implements the resource.Resource interface.
 func NewFolderResource() resource.Resource {
 	return &folderResource{}
 }
@@ -46,7 +46,10 @@ func (r *folderResource) Configure(_ context.Context, req resource.ConfigureRequ
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *passboltClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf(
+				"Invalid provider data type: %T",
+				req.ProviderData,
+			),
 		)
 
 		return
@@ -99,31 +102,33 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 	folders, err := r.client.Client.GetFolders(ctx, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot get folders", "")
+
 		return
 	}
 
-	var folderId string
+	var folderID string
 	if !plan.FolderParent.IsUnknown() && !plan.FolderParent.IsNull() {
 		for _, folder := range folders {
 			if folder.Name == plan.FolderParent.ValueString() {
-				folderId = folder.ID
+				folderID = folder.ID
 			}
 		}
 	}
 
 	// Generate API request body from plan
 	var folder = api.Folder{
-		FolderParentID: folderId,
+		FolderParentID: folderID,
 		Name:           plan.Name.ValueString(),
 	}
 
 	// Create new order
-	cFolder, errCreate := r.client.Client.CreateFolder(r.client.Context, folder)
+	cFolder, errCreate := r.client.Client.CreateFolder(ctx, folder)
 	if errCreate != nil {
 		resp.Diagnostics.AddError(
 			"Error creating folder",
 			"Could not create folder, unexpected error: "+errCreate.Error(),
 		)
+
 		return
 	}
 

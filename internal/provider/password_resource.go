@@ -5,24 +5,23 @@ import (
 	"fmt"
 	"terraform-provider-passbolt/tools"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/passbolt/go-passbolt/helper"
 )
 
-// Ensure the implementation satisfies the expected interfaces.
 var (
 	_ resource.Resource              = &passwordResource{}
 	_ resource.ResourceWithConfigure = &passwordResource{}
 )
 
-// NewPasswordResource is a helper function to simplify the provider implementation.
+// NewPasswordResource returns a new instance of passwordResource as a Terraform resource.
 func NewPasswordResource() resource.Resource {
 	return &passwordResource{}
 }
 
-// folderResource is the resource implementation.
 type passwordResource struct {
 	client *tools.PassboltClient
 }
@@ -32,15 +31,17 @@ type passwordModel struct {
 	Name         types.String `tfsdk:"name"`
 	Description  types.String `tfsdk:"description"`
 	Username     types.String `tfsdk:"username"`
-	Uri          types.String `tfsdk:"uri"`
+	URI          types.String `tfsdk:"uri"`
 	ShareGroup   types.String `tfsdk:"share_group"`
 	FolderParent types.String `tfsdk:"folder_parent"`
 	Password     types.String `tfsdk:"password"`
 }
 
-// Configure adds the provider configured client to the resource.
-func (r *passwordResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-
+func (r *passwordResource) Configure(
+	_ context.Context,
+	req resource.ConfigureRequest,
+	resp *resource.ConfigureResponse,
+) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -49,7 +50,7 @@ func (r *passwordResource) Configure(_ context.Context, req resource.ConfigureRe
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *hashicups.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *PassboltClient, got: %T", req.ProviderData),
 		)
 
 		return
@@ -58,12 +59,10 @@ func (r *passwordResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = client
 }
 
-// Metadata returns the resource type name.
 func (r *passwordResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_password"
 }
 
-// Schema defines the schema for the resource.
 func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -104,118 +103,165 @@ func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	}
 }
 
-// Create a new resource.
 func (r *passwordResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan passwordModel
-	diags := req.Plan.Get(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resourceTypes, err := r.client.Client.GetResourceTypes(ctx, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Cannot get resource types", "")
+	folderID, diag := resolveFolderID(ctx, r.client, plan.FolderParent)
+	resp.Diagnostics.Append(diag...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	for _, resourceType := range resourceTypes {
-		if resourceType.Slug == "password-and-description" {
-			//		plan.ResourceTypeId = types.StringValue(resourceType.ID)
-		}
-	}
-
-	folders, errFolder := r.client.Client.GetFolders(ctx, nil)
-	if errFolder != nil {
-		resp.Diagnostics.AddError("Cannot get folders", "")
-		return
-	}
-
-	var folderId string
-	if !plan.FolderParent.IsUnknown() && !plan.FolderParent.IsNull() {
-		for _, folder := range folders {
-			if folder.Name == plan.FolderParent.ValueString() {
-				folderId = folder.ID
-			}
-		}
-	}
-
-	resourceId, err := helper.CreateResource(
+	resourceID, err := helper.CreateResource(
 		ctx,
 		r.client.Client,
-		folderId,
+		folderID,
 		plan.Name.ValueString(),
 		plan.Username.ValueString(),
-		plan.Uri.ValueString(),
+		plan.URI.ValueString(),
 		plan.Password.ValueString(),
 		plan.Description.ValueString(),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot create resource", err.Error())
+
 		return
 	}
 
-	var groupId string
 	if !plan.ShareGroup.IsUnknown() && !plan.FolderParent.IsNull() {
-		groups, _ := r.client.Client.GetGroups(ctx, nil)
+		shareResourceWithGroup(ctx, r.client, plan.ShareGroup.ValueString(), resourceID, &resp.Diagnostics)
+	}
 
-		for _, group := range groups {
-			if group.Name == plan.ShareGroup.ValueString() {
-				groupId = group.ID
-			}
+	plan.ID = types.StringValue(resourceID)
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+}
+
+func resolveFolderID(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	folder types.String,
+) (
+	string,
+	diag.Diagnostics,
+) {
+	var diags diag.Diagnostics
+
+	if folder.IsUnknown() || folder.IsNull() {
+		return "", diags
+	}
+
+	available, err := client.Client.GetFolders(ctx, nil)
+	if err != nil {
+		diags.AddError("Cannot get folders", err.Error())
+
+		return "", diags
+	}
+
+	for _, f := range available {
+		if f.Name == folder.ValueString() {
+			return f.ID, diags
 		}
+	}
 
-		if groupId != "" {
-			var shares = []helper.ShareOperation{
+	diags.AddError("Folder not found", fmt.Sprintf("Folder with name '%s' not found", folder.ValueString()))
+
+	return "", diags
+}
+
+func shareResourceWithGroup(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	groupName, resourceID string,
+	diags *diag.Diagnostics,
+) {
+	groups, err := client.Client.GetGroups(ctx, nil)
+	if err != nil {
+		diags.AddError("Cannot get groups", err.Error())
+
+		return
+	}
+
+	for _, group := range groups {
+		if group.Name == groupName {
+			shares := []helper.ShareOperation{
 				{
 					Type:  7,
 					ARO:   "Group",
-					AROID: groupId,
+					AROID: group.ID,
 				},
 			}
-
-			shareErr := helper.ShareResource(ctx, r.client.Client, resourceId, shares)
-
-			if shareErr != nil {
-				resp.Diagnostics.AddError("Cannot share resource", "")
+			if err := helper.ShareResource(ctx, client.Client, resourceID, shares); err != nil {
+				diags.AddError("Cannot share resource", err.Error())
 			}
+
+			return
 		}
 	}
+	diags.AddError("Group not found", fmt.Sprintf("Group with name '%s' not found", groupName))
+}
 
-	plan.ID = types.StringValue(resourceId)
-
-	// Set state to fully populated data
-	diags = resp.State.Set(ctx, plan)
-	resp.Diagnostics.Append(diags...)
+func (r *passwordResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state passwordModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	folderID, name, username, uri, password, description, err := helper.GetResource(
+		ctx, r.client.Client, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot read resource", err.Error())
+
+		return
+	}
+
+	state.Name = types.StringValue(name)
+	state.Username = types.StringValue(username)
+	state.URI = types.StringValue(uri)
+	state.Password = types.StringValue(password)
+	state.Description = types.StringValue(description)
+	state.FolderParent = types.StringValue(folderID)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// Read refreshes the Terraform state with the latest data.
-func (r *passwordResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
+func (r *passwordResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan passwordModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var state passwordModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if err := r.client.Client.DeleteResource(ctx, state.ID.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting resource", err.Error())
+
+		return
+	}
+
+	r.Create(ctx, resource.CreateRequest{Plan: req.Plan}, &resource.CreateResponse{
+		Diagnostics: resp.Diagnostics,
+		State:       resp.State,
+	})
 }
 
-// Update updates the resource and sets the updated Terraform state on success.
-func (r *passwordResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
-}
-
-// Delete deletes the resource and removes the Terraform state on success.
 func (r *passwordResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state passwordModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Delete existing order
-	err := r.client.Client.DeleteResource(ctx, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Error deleting password",
-			"Could not delete password, unexpected error: "+err.Error(),
-		)
-		return
+	if err := r.client.Client.DeleteResource(ctx, state.ID.ValueString()); err != nil {
+		resp.Diagnostics.AddError("Error deleting password", err.Error())
 	}
 }
