@@ -1,0 +1,68 @@
+name: Notify and CI
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  notify:
+    if: github.event_name == 'issues' || github.event.action == 'opened'
+    runs-on: [self-hosted]
+    steps:
+      - name: Notify Telegram
+        run: |
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            TITLE="${{ github.event.issue.title }}"
+            URL="${{ github.event.issue.html_url }}"
+            MSG="🛎️ New Issue: [${TITLE}](${URL})"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TITLE="${{ github.event.pull_request.title }}"
+            URL="${{ github.event.pull_request.html_url }}"
+            MSG="📦 New PR: [${TITLE}](${URL})"
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
+
+  pr-ci:
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v2.1
+          args: --timeout 5m
+
+      - name: Run tests
+        run: |
+          TF_ACC=1 go test ./... -v
+
+  notify-success:
+    if: ${{ success() && github.event_name == 'pull_request' }}
+    needs: pr-ci
+    runs-on: [self-hosted]
+    steps:
+      - name: Notify Telegram Success
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          URL="${{ github.event.pull_request.html_url }}"
+          MSG="✅ CI Passed for PR: [${TITLE}](${URL})"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
