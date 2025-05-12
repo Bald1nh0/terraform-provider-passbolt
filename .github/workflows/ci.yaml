@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send Telegram Message
+        run: |
+          MSG="🚀 New push to *${{ github.ref_name }}* by [${{ github.actor }}](https://github.com/${{ github.actor }}) [View Commit »](${{ github.event.head_commit.url }})"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1
+          args: --timeout 5m
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || (echo 'Run `gofmt -w` on these files:' && gofmt -l . && exit 1)
+
+      - name: Build
+        run: go build ./...
+
+      - name: Preview version bump (dry-run)
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
+
+      - name: Send version preview to Telegram
+        if: steps.tag_version.outputs.new_tag != ''
+        run: |
+          MSG=$(cat <<EOF
+          🧪 *Version Preview for \`${{ github.ref_name }}\`*
+          🔖 *Next Tag:* \`${{ steps.tag_version.outputs.new_tag }}\`
+          📦 *Release Type:* \`${{ steps.tag_version.outputs.release_type }}\`
+
+          📝 *Changes:*
+          ${{ steps.tag_version.outputs.changelog }}
+          EOF
+          )
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            --data-urlencode chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode text="$MSG" \
+            -d parse_mode=Markdown
+
+
