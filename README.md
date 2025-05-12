@@ -175,7 +175,7 @@ resource "passbolt_group" "developers" {
 
 ---
 
-# Resource: passbolt_group
+## Resource: passbolt_group
 
 ```hcl
 resource "passbolt_group" "example" {

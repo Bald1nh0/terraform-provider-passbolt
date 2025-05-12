@@ -3,12 +3,18 @@
 page_title: "passbolt Provider"
 subcategory: ""
 description: |-
-  
+  The Passbolt provider allows you to manage secrets, folders, users, groups, and permissions in your self-hosted Passbolt instance using Terraform.
+  It supports both Passbolt CE and PRO, and is integration-ready for AWS SSM, Secrets Manager, and other external secret stores.
+  Authentication is performed using your PGP private key and passphrase, which can be provided directly or via environment variables.
 ---
 
 # passbolt Provider
 
+The Passbolt provider allows you to manage secrets, folders, users, groups, and permissions in your self-hosted Passbolt instance using Terraform.
 
+It supports both **Passbolt CE and PRO**, and is integration-ready for AWS SSM, Secrets Manager, and other external secret stores.
+
+Authentication is performed using your PGP private key and passphrase, which can be provided directly or via environment variables.
 
 ## Example Usage
 
