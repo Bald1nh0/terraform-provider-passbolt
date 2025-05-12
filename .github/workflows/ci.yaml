@@ -53,12 +53,18 @@ jobs:
       - name: Send version preview to Telegram
         if: steps.tag_version.outputs.new_tag != ''
         run: |
-          MSG="🧪 *Version Preview for `${{ github.ref_name }}`*\n\
-              🔖 *Next Tag:* `${{ steps.tag_version.outputs.new_tag }}`\n\
-              📦 *Release Type:* `${{ steps.tag_version.outputs.release_type }}`\n\
-              📝 *Changes:*\n${{ steps.tag_version.outputs.changelog }}"
-                        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-                          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-                          -d text="$MSG" \
-                          -d parse_mode="Markdown"
+          MSG=$(cat <<EOF
+          🧪 *Version Preview for \`${{ github.ref_name }}\`*
+          🔖 *Next Tag:* \`${{ steps.tag_version.outputs.new_tag }}\`
+          📦 *Release Type:* \`${{ steps.tag_version.outputs.release_type }}\`
+
+          📝 *Changes:*
+          ${{ steps.tag_version.outputs.changelog }}
+          EOF
+          )
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            --data-urlencode chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode text="$MSG" \
+            -d parse_mode=Markdown
+
 
