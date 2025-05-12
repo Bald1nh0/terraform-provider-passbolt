@@ -41,14 +41,14 @@ jobs:
         if: steps.tag_version.outputs.new_tag != ''
         run: |
           MSG=$(cat <<EOF
-            🧪 *Release for \`${{ github.ref_name }}\`*
-            🔖 *Tag:* \`${{ steps.tag_version.outputs.new_tag }}\`
-            📦 *Release Type:* \`${{ steps.tag_version.outputs.release_type }}\`
+          🧪 *Release for \`${{ github.ref_name }}\`*
+          🔖 *Tag:* \`${{ steps.tag_version.outputs.new_tag }}\`
+          📦 *Release Type:* \`${{ steps.tag_version.outputs.release_type }}\`
 
-            📝 *Changes:*
-            ${{ steps.tag_version.outputs.changelog }}
-            EOF
-            )
+          📝 *Changes:*
+          ${{ steps.tag_version.outputs.changelog }}
+          EOF
+          )
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             --data-urlencode chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             --data-urlencode text="$MSG" \
