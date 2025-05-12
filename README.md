@@ -12,6 +12,8 @@ Self-hosted open-source team password manager, with folder, sharing and SSM/auto
 - Grant and revoke group permission to folders (`passbolt_folder_permission` resource)
 - Integration-ready with AWS SSM, Secrets Manager, and other tools
 - Use with your own Passbolt instance (CE or PRO)
+- Manage user groups via `passbolt_group` (with manager assignment)
+- Look up users by email using `data "passbolt_user"`
 
 ---
 
@@ -116,6 +118,25 @@ resource "passbolt_password" "example" {
   share_group   = "DevOps"
 }
 ```
+### Example: Using secret from AWS SSM
+
+You can pull a secret from AWS and inject into Passbolt using Terraform:
+
+```hcl
+data "aws_ssm_parameter" "centrifugo_admin_password" {
+  name            = "/centrifugo/admin_password"
+  with_decryption = true
+}
+
+resource "passbolt_password" "centrifugo_admin_password" {
+  name         = "CentrifugoAdmin"
+  password     = data.aws_ssm_parameter.centrifugo_admin_password.value
+  username     = "no_need"
+  uri          = "https://centrifugo-dev.example.com/"
+  folder_parent = "Backend"
+  share_group   = "Backend"
+}
+```
 
 ---
 
@@ -138,28 +159,49 @@ resource "passbolt_folder_permission" "critical_devops" {
 - **permission**: `"read"` = read-only, `"update"` = edit, `"owner"` = full/admin rights  
 - To revoke sharing, remove the resource from your configuration.
 
----
-
-## Example: Using secret from AWS SSM
-
-You can pull a secret from AWS and inject into Passbolt using Terraform:
+You can use `data.passbolt_user` + `passbolt_group` to create dynamic sharing logic:
 
 ```hcl
-data "aws_ssm_parameter" "centrifugo_admin_password" {
-  name            = "/centrifugo/admin_password"
-  with_decryption = true
+data "passbolt_user" "dev_manager" {
+  username = "dev.lead@example.com"
 }
 
-resource "passbolt_password" "centrifugo_admin_password" {
-  name         = "CentrifugoAdmin"
-  password     = data.aws_ssm_parameter.centrifugo_admin_password.value
-  username     = "no_need"
-  uri          = "https://centrifugo-dev.example.com/"
-  folder_parent = "Backend"
-  share_group   = "Backend"
+resource "passbolt_group" "developers" {
+  name     = "Developers"
+  managers = [data.passbolt_user.dev_manager.id]
+}
+
+
+
+---
+
+# Resource: passbolt_group
+
+```hcl
+resource "passbolt_group" "example" {
+  name     = "Terraform Group Example"
+  managers = ["2a61bc5d-bbbb-aaaa-cccc-123456789abc"] # Must be active Passbolt user UUID
 }
 ```
+
+You can look up user UUIDs using data "passbolt_user" or manually fetch from Passbolt
+
 ---
+
+## Data Source: passbolt_user
+
+```hcl
+data "passbolt_user" "admin" {
+  username = "admin@example.com"
+}
+
+output "user_id" {
+  value = data.passbolt_user.admin.id
+}
+```
+
+- Returns `user id`, `role`, `first_name`, and `last_name`
+- Can be used to assign managers in `passbolt_group`, or resolve dependencies
 
 ## Development
 

@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
 )
 
@@ -142,19 +143,108 @@ func (r *folderPermissionResource) Create(
 // Read - return state
 func (r *folderPermissionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state folderPermissionModel
-	req.State.Get(ctx, &state)
-	resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	groupID, err := getgroupIDByName(ctx, r.client, state.GroupName.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error resolving group ID", err.Error())
+
+		return
+	}
+
+	folders, err := r.client.Client.GetFolders(ctx, &api.GetFoldersOptions{
+		ContainPermissions: true,
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Error fetching folders", err.Error())
+
+		return
+	}
+
+	for _, folder := range folders {
+		if folder.ID != state.FolderID.ValueString() {
+			continue
+		}
+
+		var latestPermType *int
+
+		for _, perm := range folder.Permissions {
+			if perm.ARO == "Group" && perm.AROForeignKey == groupID {
+				latestPermType = &perm.Type
+
+				break
+			}
+		}
+
+		if latestPermType != nil {
+			state.Permission = types.StringValue(permissionIntToString(*latestPermType))
+			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+		} else {
+			resp.State.RemoveResource(ctx)
+		}
+
+		return
+	}
+
+	resp.State.RemoveResource(ctx)
 }
 
-// Update - force recreation
+func permissionIntToString(perm int) string {
+	switch perm {
+	case 1:
+		return "read"
+	case 7:
+		return "update"
+	case 15:
+		return "owner"
+	case -1:
+		return "delete"
+	default:
+		return "unknown"
+	}
+}
+
 func (r *folderPermissionResource) Update(
 	ctx context.Context,
 	req resource.UpdateRequest,
 	resp *resource.UpdateResponse,
 ) {
-	var state folderPermissionModel
-	req.State.Get(ctx, &state)
-	resp.State.Set(ctx, &state)
+	var plan folderPermissionModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+
+	groupID, err := getgroupIDByName(ctx, r.client, plan.GroupName.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Group Not Found", err.Error())
+
+		return
+	}
+
+	permInt, err := permissionStringToInt(plan.Permission.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Permission Mapping Error", err.Error())
+
+		return
+	}
+
+	err = helper.ShareFolderWithUsersAndGroups(
+		ctx,
+		r.client.Client,
+		plan.FolderID.ValueString(),
+		nil,
+		[]string{groupID},
+		permInt,
+	)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot update folder permission", err.Error())
+
+		return
+	}
+
+	plan.ID = types.StringValue(fmt.Sprintf("%s:%s", plan.FolderID.ValueString(), plan.GroupName.ValueString()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 // Delete (revoke sharing)
@@ -216,13 +306,13 @@ func getgroupIDByName(ctx context.Context, client *tools.PassboltClient, groupNa
 func permissionStringToInt(perm string) (int, error) {
 	switch perm {
 	case "read":
-		return 4, nil
+		return 1, nil
 	case "update":
 		return 7, nil
 	case "owner":
 		return 15, nil
 	case "delete":
-		return 8, nil
+		return -1, nil
 	}
 
 	return 0, fmt.Errorf("%w: %q (must be read, update, owner, delete)", errInvalidPermission, perm)

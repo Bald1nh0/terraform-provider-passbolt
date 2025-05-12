@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"terraform-provider-passbolt/tools"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/passbolt/go-passbolt/api"
 )
 
@@ -77,13 +79,17 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"personal": schema.BoolAttribute{
 				Computed:    true,
-				Optional:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "Whether the folder is a personal folder. Computed; do not set manually.",
+				Description: "Whether the folder is a personal folder. Always false for Terraform-created folders.",
 			},
+
 			"folder_parent": schema.StringAttribute{
-				Optional:    true,
-				Description: "Name of the parent folder to create this one under. If omitted, creates a top-level folder.",
+				Optional: true,
+				Description: "Name of the parent folder to create this one under. " +
+					"If omitted, the folder will be created at the top level. " +
+					"If set, this must be a valid folder name (not empty).",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+				},
 			},
 		},
 	}
@@ -91,12 +97,18 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 
 // Create a new resource.
 func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	// Retrieve values from plan
+	tflog.Info(ctx, "Create folder resource")
+
 	var plan foldersModelCreate
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	// Normalize "" to null to prevent drift
+	if plan.FolderParent.ValueString() == "" {
+		plan.FolderParent = types.StringNull()
 	}
 
 	folders, err := r.client.Client.GetFolders(ctx, nil)
@@ -115,36 +127,32 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 	}
 
-	// Generate API request body from plan
-	var folder = api.Folder{
+	cFolder, errCreate := r.client.Client.CreateFolder(ctx, api.Folder{
 		FolderParentID: folderID,
 		Name:           plan.Name.ValueString(),
-	}
-
-	// Create new order
-	cFolder, errCreate := r.client.Client.CreateFolder(ctx, folder)
+		Personal:       false,
+	})
 	if errCreate != nil {
-		resp.Diagnostics.AddError(
-			"Error creating folder",
-			"Could not create folder, unexpected error: "+errCreate.Error(),
-		)
+		resp.Diagnostics.AddError("Error creating folder", "Could not create folder: "+errCreate.Error())
 
 		return
 	}
 
-	// Map response body to schema and populate Computed attribute values
 	plan.ID = types.StringValue(cFolder.ID)
+	plan.Personal = types.BoolValue(cFolder.Personal)
 
-	// Set state to fully populated data
+	tflog.Info(ctx, "Created folder", map[string]any{
+		"id":       cFolder.ID,
+		"personal": cFolder.Personal,
+	})
+
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 }
 
 // Read refreshes the Terraform state with the latest data.
 func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	tflog.Info(ctx, "Read folder resource")
 	var state foldersModelCreate
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
@@ -181,28 +189,56 @@ func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "Update folder resource: starting")
+
 	var plan foldersModelCreate
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Update: failed to get plan")
+
 		return
 	}
 
 	var state foldersModelCreate
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		tflog.Error(ctx, "Update: failed to get state")
+
 		return
 	}
+
+	tflog.Debug(ctx, "Update folder", map[string]any{
+		"id":   state.ID.ValueString(),
+		"name": plan.Name.ValueString(),
+	})
 
 	_, err := r.client.Client.UpdateFolder(ctx, state.ID.ValueString(), api.Folder{
 		Name: plan.Name.ValueString(),
 	})
 	if err != nil {
+		tflog.Error(ctx, "Update: API update failed", map[string]any{
+			"error": err.Error(),
+		})
 		resp.Diagnostics.AddError("Cannot update folder", err.Error())
 
 		return
 	}
 
+	// Preserve required fields to avoid drift
 	plan.ID = state.ID
+
+	if plan.FolderParent.IsUnknown() || plan.FolderParent.ValueString() == "" {
+		plan.FolderParent = types.StringNull()
+	}
+
+	if plan.Personal.IsUnknown() {
+		plan.Personal = state.Personal
+	}
+
+	tflog.Info(ctx, "Update folder resource: applying state", map[string]any{
+		"id":       plan.ID.ValueString(),
+		"personal": plan.Personal.ValueBool(),
+	})
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -216,7 +252,6 @@ func (r *folderResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	err := r.client.Client.DeleteFolder(ctx, state.ID.ValueString())
 	if err != nil {
-		// Возможно, ресурс уже удалён — это не ошибка
 		if !isNotFoundError(err) {
 			resp.Diagnostics.AddError("Error deleting folder", err.Error())
 		}

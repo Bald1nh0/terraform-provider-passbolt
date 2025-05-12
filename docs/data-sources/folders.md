@@ -3,12 +3,12 @@
 page_title: "passbolt_folders Data Source - passbolt"
 subcategory: ""
 description: |-
-  Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure or as a lookup for folder relationships in other resources.
+  Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure...
 ---
 
 # passbolt_folders (Data Source)
 
-Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure or as a lookup for folder relationships in other resources.
+Fetches all folders in Passbolt, including details like name, parent, timestamps, and ownership. Useful for discovering folder structure...
 
 ## Example Usage
 
@@ -40,7 +40,7 @@ resource "passbolt_password" "example" {
 <a id="nestedatt--folders"></a>
 ### Nested Schema for `folders`
 
-Required:
+Read-Only:
 
 - `created` (String) Creation timestamp (RFC3339).
 - `created_by` (String) User ID that created the folder.

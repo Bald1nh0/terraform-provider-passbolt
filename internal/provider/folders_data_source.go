@@ -88,35 +88,35 @@ func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"id": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "UUID of the folder.",
 						},
 						"name": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "Name of the Passbolt folder.",
 						},
 						"created": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "Creation timestamp (RFC3339).",
 						},
 						"modified": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "Last modified timestamp (RFC3339).",
 						},
 						"created_by": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "User ID that created the folder.",
 						},
 						"modified_by": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "User ID that last modified the folder.",
 						},
 						"folder_parent_id": schema.StringAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "UUID of parent folder (if any), or empty if top-level.",
 						},
 						"personal": schema.BoolAttribute{
-							Required:    true,
+							Computed:    true,
 							Description: "True if folder is a personal folder (not shared).",
 						},
 					},

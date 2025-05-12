@@ -32,9 +32,9 @@ resource "passbolt_folder" "nested" {
 
 ### Optional
 
-- `folder_parent` (String) Name of the parent folder to create this one under. If omitted, creates a top-level folder.
-- `personal` (Boolean) Whether the folder is a personal folder. Computed; do not set manually.
+- `folder_parent` (String) Name of the parent folder to create this one under. If omitted, the folder will be created at the top level. If set, this must be a valid folder name (not empty).
 
 ### Read-Only
 
 - `id` (String) The UUID of the Passbolt folder.
+- `personal` (Boolean) Whether the folder is a personal folder. Always false for Terraform-created folders.
