@@ -14,9 +14,10 @@ func TestAccPasswordResource_basic(t *testing.T) {
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := os.Getenv("PASSBOLT_MANAGER_ID")
 
-	if baseURL == "" || privateKey == "" || passphrase == "" {
-		t.Skip("Acceptance tests require PASSBOLT_BASE_URL, PRIVATE_KEY, and PASSPHRASE")
+	if baseURL == "" || privateKey == "" || passphrase == "" || managerID == "" {
+		t.Skip("PASSBOLT_BASE_URL, PRIVATE_KEY, PASSPHRASE, and MANAGER_ID must be set for acceptance tests")
 	}
 
 	resource.Test(t, resource.TestCase{
@@ -24,6 +25,8 @@ func TestAccPasswordResource_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			testStepCreatePassword(baseURL, privateKey, passphrase),
 			testStepCheckDriftless(baseURL, privateKey, passphrase),
+			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, "tf-acc-group", managerID),
+			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, "tf-acc-group", managerID),
 			testStepUpdatePassword(baseURL, privateKey, passphrase),
 		},
 	})
@@ -85,6 +88,60 @@ func testStepUpdatePassword(baseURL, privateKey, passphrase string) resource.Tes
 			resource.TestCheckResourceAttr("passbolt_password.example", "uri", "https://example.org"),
 		),
 	}
+}
+
+func testStepShareSameGroupTwice(baseURL, privateKey, passphrase, groupName, managerID string) resource.TestStep {
+	return resource.TestStep{
+		Config: testPasswordWithShareConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			"acc-test-shared",
+			managerID,
+			"user",
+			"https://shared.example.com",
+			"shared-secret",
+			groupName,
+		),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_password.shared", "name", "acc-test-shared"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "share_group", groupName),
+		),
+	}
+}
+
+func testPasswordWithShareConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	name,
+	managerID,
+	username,
+	uri,
+	password,
+	group string) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_group" "test" {
+  name     = "%s"
+  managers = ["%s"]
+}
+
+resource "passbolt_password" "shared" {
+  name         = "%s"
+  username     = "%s"
+  uri          = "%s"
+  password     = "%s"
+  share_group  = passbolt_group.test.name
+}
+`, baseURL, privateKey, passphrase, group, managerID, name, username, uri, password)
 }
 
 func testPasswordConfig(baseURL, privateKey, passphrase, name, username, uri, password string) string {

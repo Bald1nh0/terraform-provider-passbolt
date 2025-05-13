@@ -19,7 +19,13 @@ jobs:
 
       - name: Send Telegram Message
         run: |
-          MSG="🚀 New push to *${{ github.ref_name }}* by [${{ github.actor }}](https://github.com/${{ github.actor }}) [View Commit »](${{ github.event.head_commit.url }})"
+          MSG=$(cat <<EOF
+          🚀 New push to *${{ github.ref_name }}* by [${{ github.actor }}](https://github.com/${{ github.actor }})
+          [View Commit »](${{ github.event.head_commit.url }})
+          📝 *Commit Message:* ${{ github.event.head_commit.message }}
+          📅 *Date:* ${{ github.event.head_commit.timestamp }}
+          EOF
+          )
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d text="$MSG" \

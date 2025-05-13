@@ -6,6 +6,7 @@ import (
 	"terraform-provider-passbolt/tools"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -13,8 +14,9 @@ import (
 )
 
 var (
-	_ resource.Resource              = &passwordResource{}
-	_ resource.ResourceWithConfigure = &passwordResource{}
+	_ resource.Resource                = &passwordResource{}
+	_ resource.ResourceWithConfigure   = &passwordResource{}
+	_ resource.ResourceWithImportState = &passwordResource{}
 )
 
 // NewPasswordResource returns a new instance of passwordResource as a Terraform resource.
@@ -59,16 +61,25 @@ func (r *passwordResource) Configure(
 	r.client = client
 }
 
+func (r *passwordResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+}
+
 func (r *passwordResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_password"
 }
 
 func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Manages a secret/password entry in Passbolt. Supports optional folder placement and group sharing.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "The UUID of the Passbolt password/secret resource.",
+				Description: "The UUID of the Passbolt password/secret resource. Used for import and internal tracking.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
@@ -84,20 +95,21 @@ func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			},
 			"uri": schema.StringAttribute{
 				Required:    true,
-				Description: "A URI or reference where this password is used (e.g., https://service.example.com).",
+				Description: "The URI or URL where the secret is used (e.g., https://service.example.com).",
 			},
 			"share_group": schema.StringAttribute{
 				Optional:    true,
-				Description: "Name of Passbolt group to share this secret with. Optional: omit to leave unshared.",
+				Description: "Name of the Passbolt group to share this secret with. Leave unset to keep private.",
 			},
 			"folder_parent": schema.StringAttribute{
 				Optional:    true,
-				Description: "Name of an existing folder in Passbolt to place this secret in. Optional.",
+				Description: "Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.",
 			},
 			"password": schema.StringAttribute{
-				Required:    true,
-				Sensitive:   true,
-				Description: "The password or secret value. (Sensitive, will not be displayed in Terraform output.)",
+				Required:  true,
+				Sensitive: true,
+				Description: "The actual secret or password value. Marked sensitive — " +
+					"will not appear in CLI output or state diffs.",
 			},
 		},
 	}

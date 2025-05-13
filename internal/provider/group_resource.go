@@ -8,6 +8,7 @@ import (
 
 	"github.com/passbolt/go-passbolt/helper"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -15,8 +16,9 @@ import (
 
 // Ensure interfaces
 var (
-	_ resource.Resource              = &groupResource{}
-	_ resource.ResourceWithConfigure = &groupResource{}
+	_ resource.Resource                = &groupResource{}
+	_ resource.ResourceWithConfigure   = &groupResource{}
+	_ resource.ResourceWithImportState = &groupResource{}
 )
 
 // NewGroupResource returns a Terraform resource for managing Passbolt groups.
@@ -51,12 +53,22 @@ func (r *groupResource) Configure(_ context.Context, req resource.ConfigureReque
 	r.client = client
 }
 
+func (r *groupResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+}
+
 func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_group"
 }
 
 func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Creates and manages Passbolt groups. Groups can be assigned managers and used to share " +
+			"resources like passwords or folders.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,

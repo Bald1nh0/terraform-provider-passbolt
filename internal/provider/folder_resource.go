@@ -6,6 +6,7 @@ import (
 	"terraform-provider-passbolt/tools"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -16,8 +17,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &folderResource{}
-	_ resource.ResourceWithConfigure = &folderResource{}
+	_ resource.Resource                = &folderResource{}
+	_ resource.ResourceWithConfigure   = &folderResource{}
+	_ resource.ResourceWithImportState = &folderResource{}
 )
 
 // NewFolderResource returns interface a new instance of folderResource that implements the resource.Resource interface.
@@ -60,6 +62,14 @@ func (r *folderResource) Configure(_ context.Context, req resource.ConfigureRequ
 	r.client = client
 }
 
+func (r *folderResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+}
+
 // Metadata returns the resource type name.
 func (r *folderResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_folder"
@@ -68,6 +78,9 @@ func (r *folderResource) Metadata(_ context.Context, req resource.MetadataReques
 // Schema defines the schema for the resource.
 func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Creates a folder in Passbolt. Folders are used to organize secrets and can be shared with" +
+			" groups using the `passbolt_folder_permission` resource.\n\n" +
+			"Folders can optionally have a parent folder (nesting is supported).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,

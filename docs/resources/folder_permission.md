@@ -3,12 +3,12 @@
 page_title: "passbolt_folder_permission Resource - passbolt"
 subcategory: ""
 description: |-
-  
+  Grants a Passbolt group permission to access a specific folder. This resource allows sharing a folder with a group with a defined level of access. To revoke access, simply remove the resource from your configuration.
 ---
 
 # passbolt_folder_permission (Resource)
 
-
+Grants a Passbolt group permission to access a specific folder. This resource allows sharing a folder with a group with a defined level of access. To revoke access, simply remove the resource from your configuration.
 
 ## Example Usage
 
@@ -30,10 +30,23 @@ resource "passbolt_folder_permission" "example" {
 
 ### Required
 
-- `folder_id` (String) ID of Passbolt folder to be shared
-- `group_name` (String) Name of the Passbolt group to share with
-- `permission` (String) Permission type: read, update, delete, or owner
+- `folder_id` (String) The UUID of the Passbolt folder to be shared. This folder must already exist.
+- `group_name` (String) The name of the Passbolt group to grant access to. The group must already exist.
+- `permission` (String) Level of access to grant. Must be one of: `read`, `update`, `owner`, or `delete`.
+	- `read`: read-only access
+	- `update`: ability to edit contents
+	- `owner`: full control (admin rights)
+	- `delete`: used internally to revoke permissions (not typically used manually)
 
 ### Read-Only
 
-- `id` (String) Internal ID is always folder_id:group_name
+- `id` (String) Internal resource ID, always in the format `folder_id:group_name`. Used to uniquely track the sharing link between a folder and a group.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Folder permission can be imported using folder_id:group_name
+terraform import passbolt_folder_permission.example 1111aaaa-2222-bbbb-3333-cccc4444dddd:DevOps
+```

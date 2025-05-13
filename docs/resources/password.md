@@ -3,12 +3,12 @@
 page_title: "passbolt_password Resource - passbolt"
 subcategory: ""
 description: |-
-  
+  Manages a secret/password entry in Passbolt. Supports optional folder placement and group sharing.
 ---
 
 # passbolt_password (Resource)
 
-
+Manages a secret/password entry in Passbolt. Supports optional folder placement and group sharing.
 
 ## Example Usage
 
@@ -30,16 +30,25 @@ resource "passbolt_password" "example" {
 ### Required
 
 - `name` (String) Name for identifying the password/secret in Passbolt.
-- `password` (String, Sensitive) The password or secret value. (Sensitive, will not be displayed in Terraform output.)
-- `uri` (String) A URI or reference where this password is used (e.g., https://service.example.com).
+- `password` (String, Sensitive) The actual secret or password value. Marked sensitive — will not appear in CLI output or state diffs.
+- `uri` (String) The URI or URL where the secret is used (e.g., https://service.example.com).
 - `username` (String) Username or login for the password/secret entry.
 
 ### Optional
 
 - `description` (String) Free-form description for this password/secret.
-- `folder_parent` (String) Name of an existing folder in Passbolt to place this secret in. Optional.
-- `share_group` (String) Name of Passbolt group to share this secret with. Optional: omit to leave unshared.
+- `folder_parent` (String) Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.
+- `share_group` (String) Name of the Passbolt group to share this secret with. Leave unset to keep private.
 
 ### Read-Only
 
-- `id` (String) The UUID of the Passbolt password/secret resource.
+- `id` (String) The UUID of the Passbolt password/secret resource. Used for import and internal tracking.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Password can be imported by specifying the UUID.
+terraform import passbolt_password.example 3c29bc5d-ffff-cccc-bbbb-abcdefabcdef
+```

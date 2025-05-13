@@ -3,12 +3,12 @@
 page_title: "passbolt_group Resource - passbolt"
 subcategory: ""
 description: |-
-  
+  Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
 ---
 
 # passbolt_group (Resource)
 
-
+Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
 
 ## Example Usage
 
@@ -43,3 +43,12 @@ resource "passbolt_group" "example" {
 ### Read-Only
 
 - `id` (String) Group ID (UUID).
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Group can be imported by specifying the UUID.
+terraform import passbolt_group.example 5d72bc5d-eeee-dddd-cccc-fedcba987654
+```
