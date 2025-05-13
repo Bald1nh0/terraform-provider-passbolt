@@ -6,6 +6,7 @@ import (
 
 	"terraform-provider-passbolt/tools"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -15,8 +16,9 @@ import (
 
 // Ensure implementation
 var (
-	_ resource.Resource              = &userResource{}
-	_ resource.ResourceWithConfigure = &userResource{}
+	_ resource.Resource                = &userResource{}
+	_ resource.ResourceWithConfigure   = &userResource{}
+	_ resource.ResourceWithImportState = &userResource{}
 )
 
 // NewUserResource returns a Terraform resource for managing Passbolt users.
@@ -51,12 +53,23 @@ func (r *userResource) Configure(_ context.Context, req resource.ConfigureReques
 	r.client = client
 }
 
+func (r *userResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+}
+
 func (r *userResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_user"
 }
 
 func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Creates and manages a Passbolt user. Users can be assigned roles (`admin` or `user`) " +
+			"and added to groups. " +
+			"This resource is useful for automation of onboarding, role enforcement, and group membership.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -67,12 +80,14 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Description: "Username (email address).",
 			},
 			"first_name": schema.StringAttribute{
-				Required:    true,
-				Description: "First name of the user (required by API, not returned in read).",
+				Required: true,
+				Description: "First name of the user. Required for creation, " +
+					"but not returned by the API when reading the user.",
 			},
 			"last_name": schema.StringAttribute{
-				Required:    true,
-				Description: "Last name of the user (required by API, not returned in read).",
+				Required: true,
+				Description: "Last name of the user. Required for creation, " +
+					"but not returned by the API when reading the user.",
 			},
 			"role": schema.StringAttribute{
 				Required:    true,

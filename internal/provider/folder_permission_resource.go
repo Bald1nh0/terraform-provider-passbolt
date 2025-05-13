@@ -5,11 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"terraform-provider-passbolt/tools"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
@@ -17,8 +20,9 @@ import (
 
 // Ensure implementation
 var (
-	_ resource.Resource              = &folderPermissionResource{}
-	_ resource.ResourceWithConfigure = &folderPermissionResource{}
+	_ resource.Resource                = &folderPermissionResource{}
+	_ resource.ResourceWithConfigure   = &folderPermissionResource{}
+	_ resource.ResourceWithImportState = &folderPermissionResource{}
 )
 
 // NewFolderPermissionResource returns a Terraform resource for managing Passbolt folder permissions.
@@ -57,6 +61,27 @@ func (r *folderPermissionResource) Configure(
 	r.client = client
 }
 
+// ImportState
+func (r *folderPermissionResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
+	parts := strings.SplitN(req.ID, ":", 2)
+	if len(parts) != 2 {
+		resp.Diagnostics.AddError("Invalid import ID format",
+			"Expected format: <folder_id>:<group_name>")
+		return
+	}
+
+	folderID := parts[0]
+	groupName := parts[1]
+
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("folder_id"), folderID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("group_name"), groupName)...)
+}
+
 // Metadata for resource
 func (r *folderPermissionResource) Metadata(
 	_ context.Context,
@@ -73,22 +98,30 @@ func (r *folderPermissionResource) Schema(
 	resp *resource.SchemaResponse,
 ) {
 	resp.Schema = schema.Schema{
+		Description: "Grants a Passbolt group permission to access a specific folder. " +
+			"This resource allows sharing a folder with a group with a defined level of access. " +
+			"To revoke access, simply remove the resource from your configuration.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed:    true,
-				Description: "Internal ID is always folder_id:group_name",
+				Computed: true,
+				Description: "Internal resource ID, always in the format `folder_id:group_name`. " +
+					"Used to uniquely track the sharing link between a folder and a group.",
 			},
 			"folder_id": schema.StringAttribute{
 				Required:    true,
-				Description: "ID of Passbolt folder to be shared",
+				Description: "The UUID of the Passbolt folder to be shared. This folder must already exist.",
 			},
 			"group_name": schema.StringAttribute{
 				Required:    true,
-				Description: "Name of the Passbolt group to share with",
+				Description: "The name of the Passbolt group to grant access to. The group must already exist.",
 			},
 			"permission": schema.StringAttribute{
-				Required:    true,
-				Description: "Permission type: read, update, delete, or owner",
+				Required: true,
+				Description: "Level of access to grant. Must be one of: `read`, `update`, `owner`, or `delete`.\n" +
+					"	- `read`: read-only access\n" +
+					"	- `update`: ability to edit contents\n" +
+					"	- `owner`: full control (admin rights)\n" +
+					"	- `delete`: used internally to revoke permissions (not typically used manually)",
 			},
 		},
 	}

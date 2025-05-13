@@ -3,12 +3,12 @@
 page_title: "passbolt_user Resource - passbolt"
 subcategory: ""
 description: |-
-  
+  Creates and manages a Passbolt user. Users can be assigned roles (admin or user) and added to groups. This resource is useful for automation of onboarding, role enforcement, and group membership.
 ---
 
 # passbolt_user (Resource)
 
-
+Creates and manages a Passbolt user. Users can be assigned roles (`admin` or `user`) and added to groups. This resource is useful for automation of onboarding, role enforcement, and group membership.
 
 ## Example Usage
 
@@ -26,11 +26,20 @@ resource "passbolt_user" "test" {
 
 ### Required
 
-- `first_name` (String) First name of the user (required by API, not returned in read).
-- `last_name` (String) Last name of the user (required by API, not returned in read).
+- `first_name` (String) First name of the user. Required for creation, but not returned by the API when reading the user.
+- `last_name` (String) Last name of the user. Required for creation, but not returned by the API when reading the user.
 - `role` (String) Role name: 'admin' or 'user'.
 - `username` (String) Username (email address).
 
 ### Read-Only
 
 - `id` (String) UUID of the user.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# User can be imported by UUID.
+terraform import passbolt_user.example 9999ffff-8888-7777-6666-5555eeeeeeee
+```

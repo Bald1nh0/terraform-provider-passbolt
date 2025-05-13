@@ -3,12 +3,15 @@
 page_title: "passbolt_folder Resource - passbolt"
 subcategory: ""
 description: |-
-  
+  Creates a folder in Passbolt. Folders are used to organize secrets and can be shared with groups using the passbolt_folder_permission resource.
+  Folders can optionally have a parent folder (nesting is supported).
 ---
 
 # passbolt_folder (Resource)
 
+Creates a folder in Passbolt. Folders are used to organize secrets and can be shared with groups using the `passbolt_folder_permission` resource.
 
+Folders can optionally have a parent folder (nesting is supported).
 
 ## Example Usage
 
@@ -38,3 +41,12 @@ resource "passbolt_folder" "nested" {
 
 - `id` (String) The UUID of the Passbolt folder.
 - `personal` (Boolean) Whether the folder is a personal folder. Always false for Terraform-created folders.
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Folder can be imported by specifying the UUID.
+terraform import passbolt_folder.example 2a61bc5d-bbbb-aaaa-cccc-123456789abc
+```
