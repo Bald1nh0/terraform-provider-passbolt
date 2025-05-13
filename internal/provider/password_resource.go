@@ -106,9 +106,10 @@ func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Description: "Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.",
 			},
 			"password": schema.StringAttribute{
-				Required:    true,
-				Sensitive:   true,
-				Description: "The actual secret or password value. Marked sensitive — will not appear in CLI output or state diffs.",
+				Required:  true,
+				Sensitive: true,
+				Description: "The actual secret or password value. Marked sensitive — " +
+					"will not appear in CLI output or state diffs.",
 			},
 		},
 	}

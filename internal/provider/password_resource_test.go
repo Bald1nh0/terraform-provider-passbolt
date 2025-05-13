@@ -110,7 +110,16 @@ func testStepShareSameGroupTwice(baseURL, privateKey, passphrase, groupName, man
 	}
 }
 
-func testPasswordWithShareConfig(baseURL, privateKey, passphrase, name, managerID, username, uri, password, group string) string {
+func testPasswordWithShareConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	name,
+	managerID,
+	username,
+	uri,
+	password,
+	group string) string {
 	return fmt.Sprintf(`
 provider "passbolt" {
   base_url    = "%s"

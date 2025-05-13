@@ -71,6 +71,7 @@ func (r *folderPermissionResource) ImportState(
 	if len(parts) != 2 {
 		resp.Diagnostics.AddError("Invalid import ID format",
 			"Expected format: <folder_id>:<group_name>")
+
 		return
 	}
 
