@@ -28,6 +28,8 @@ func TestAccPasswordResource_basic(t *testing.T) {
 			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, "tf-acc-group", managerID),
 			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, "tf-acc-group", managerID),
 			testStepUpdatePassword(baseURL, privateKey, passphrase),
+			testStepShareMultipleGroups(baseURL, privateKey, passphrase,
+				[]string{"tf-acc-group-1", "tf-acc-group-2"}, managerID),
 		},
 	})
 }
@@ -108,6 +110,73 @@ func testStepShareSameGroupTwice(baseURL, privateKey, passphrase, groupName, man
 			resource.TestCheckResourceAttr("passbolt_password.shared", "share_group", groupName),
 		),
 	}
+}
+
+func testStepShareMultipleGroups(baseURL,
+	privateKey, passphrase string, groups []string, managerID string) resource.TestStep {
+	return resource.TestStep{
+		Config: testPasswordWithShareGroupsConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			"acc-test-multishare",
+			managerID,
+			"user2",
+			"https://multi.example.com",
+			"multi-secret",
+			groups,
+		),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_password.shared", "name", "acc-test-multishare"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "username", "user2"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "uri", "https://multi.example.com"),
+		),
+	}
+}
+
+func testPasswordWithShareGroupsConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	name,
+	managerID,
+	username,
+	uri,
+	password string,
+	groups []string,
+) string {
+	groupResources := ""
+	groupNames := ""
+	for i, g := range groups {
+		groupResources += fmt.Sprintf(`
+resource "passbolt_group" "g%d" {
+  name     = "%s"
+  managers = ["%s"]
+}
+`, i, g, managerID)
+		groupNames += fmt.Sprintf(`passbolt_group.g%d.name,`, i)
+	}
+	groupNames = groupNames[:len(groupNames)-1] // trim last comma
+
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase = "%s"
+}
+
+%s
+
+resource "passbolt_password" "shared" {
+  name          = "%s"
+  username      = "%s"
+  uri           = "%s"
+  password      = "%s"
+  share_groups  = [%s]
+}
+`, baseURL, privateKey, passphrase, groupResources, name, username, uri, password, groupNames)
 }
 
 func testPasswordWithShareConfig(

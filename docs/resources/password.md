@@ -13,6 +13,11 @@ Manages a secret/password entry in Passbolt. Supports optional folder placement 
 ## Example Usage
 
 ```terraform
+# Fetch the group by name (recommended over hardcoding)
+data "passbolt_group" "devops" {
+  name = "DevOps"
+}
+
 resource "passbolt_password" "example" {
   name          = "Terraform Admin"
   description   = "Credential for Centrifugo admin"
@@ -20,7 +25,12 @@ resource "passbolt_password" "example" {
   password      = "supersecret"
   uri           = "https://centrifugo.example.com"
   folder_parent = "Terraform Folders"
-  share_group   = "DevOps"
+
+  # Recommended: use share_groups for future compatibility
+  share_groups = [data.passbolt_group.devops.id]
+
+  # Deprecated: use `share_groups` instead of `share_group`
+  # share_group = "DevOps"
 }
 ```
 
@@ -39,6 +49,7 @@ resource "passbolt_password" "example" {
 - `description` (String) Free-form description for this password/secret.
 - `folder_parent` (String) Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.
 - `share_group` (String) Name of the Passbolt group to share this secret with. Leave unset to keep private.
+- `share_groups` (List of String) List of Passbolt group names to share this secret with. Supports multiple group shares. Takes precedence over `share_group`.
 
 ### Read-Only
 

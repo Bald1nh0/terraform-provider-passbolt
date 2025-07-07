@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
 )
 
@@ -29,14 +30,15 @@ type passwordResource struct {
 }
 
 type passwordModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Description  types.String `tfsdk:"description"`
-	Username     types.String `tfsdk:"username"`
-	URI          types.String `tfsdk:"uri"`
-	ShareGroup   types.String `tfsdk:"share_group"`
-	FolderParent types.String `tfsdk:"folder_parent"`
-	Password     types.String `tfsdk:"password"`
+	ID           types.String   `tfsdk:"id"`
+	Name         types.String   `tfsdk:"name"`
+	Description  types.String   `tfsdk:"description"`
+	Username     types.String   `tfsdk:"username"`
+	URI          types.String   `tfsdk:"uri"`
+	ShareGroup   types.String   `tfsdk:"share_group"`
+	ShareGroups  []types.String `tfsdk:"share_groups"`
+	FolderParent types.String   `tfsdk:"folder_parent"`
+	Password     types.String   `tfsdk:"password"`
 }
 
 func (r *passwordResource) Configure(
@@ -101,6 +103,12 @@ func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional:    true,
 				Description: "Name of the Passbolt group to share this secret with. Leave unset to keep private.",
 			},
+			"share_groups": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "List of Passbolt group names to share this secret with. Supports multiple group " +
+					"shares. Takes precedence over `share_group`.",
+			},
 			"folder_parent": schema.StringAttribute{
 				Optional:    true,
 				Description: "Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.",
@@ -146,8 +154,10 @@ func (r *passwordResource) Create(ctx context.Context, req resource.CreateReques
 
 	plan.ID = types.StringValue(resourceID)
 
-	if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
-		shareResourceWithGroup(ctx, r.client, plan.ShareGroup.ValueString(), resourceID, &resp.Diagnostics)
+	if len(plan.ShareGroups) > 0 {
+		shareResourceWithGroups(ctx, r.client, plan.ShareGroups, resourceID, &resp.Diagnostics)
+	} else if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
+		shareResourceWithGroups(ctx, r.client, []types.String{plan.ShareGroup}, resourceID, &resp.Diagnostics)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
@@ -183,36 +193,92 @@ func resolveFolderID(
 	return "", diags
 }
 
-func shareResourceWithGroup(
+func shareResourceWithGroups(
 	ctx context.Context,
 	client *tools.PassboltClient,
-	groupName, resourceID string,
+	groupNames []types.String,
+	resourceID string,
 	diags *diag.Diagnostics,
 ) {
+	if len(groupNames) == 0 {
+		return
+	}
+
+	groupsByName, groupErr := buildGroupNameMap(ctx, client, diags)
+	if groupErr != nil {
+		return
+	}
+
+	existingPerms, permErr := getExistingGroupPermissions(ctx, client, resourceID, diags)
+	if permErr != nil {
+		return
+	}
+
+	changes := make([]helper.ShareOperation, 0, len(groupNames))
+	for _, name := range groupNames {
+		groupName := name.ValueString()
+		group, ok := groupsByName[groupName]
+		if !ok {
+			diags.AddError("Group not found", fmt.Sprintf("Group with name '%s' not found", groupName))
+
+			continue
+		}
+		if existingPerms[group.ID] == 7 {
+			continue
+		}
+		changes = append(changes, helper.ShareOperation{
+			Type:  7,
+			ARO:   "Group",
+			AROID: group.ID,
+		})
+	}
+
+	if len(changes) > 0 {
+		if err := helper.ShareResource(ctx, client.Client, resourceID, changes); err != nil {
+			diags.AddError("Cannot share resource", err.Error())
+		}
+	}
+}
+
+func buildGroupNameMap(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	diags *diag.Diagnostics,
+) (map[string]api.Group, error) {
 	groups, err := client.Client.GetGroups(ctx, nil)
 	if err != nil {
 		diags.AddError("Cannot get groups", err.Error())
 
-		return
+		return nil, err
+	}
+	result := make(map[string]api.Group)
+	for _, g := range groups {
+		result[g.Name] = g
 	}
 
-	for _, group := range groups {
-		if group.Name == groupName {
-			shares := []helper.ShareOperation{
-				{
-					Type:  7,
-					ARO:   "Group",
-					AROID: group.ID,
-				},
-			}
-			if err := helper.ShareResource(ctx, client.Client, resourceID, shares); err != nil {
-				diags.AddError("Cannot share resource", err.Error())
-			}
+	return result, nil
+}
 
-			return
+func getExistingGroupPermissions(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	diags *diag.Diagnostics,
+) (map[string]int, error) {
+	perms, err := client.Client.GetResourcePermissions(ctx, resourceID)
+	if err != nil {
+		diags.AddError("Cannot get existing permissions", err.Error())
+
+		return nil, err
+	}
+	result := make(map[string]int)
+	for _, p := range perms {
+		if p.ARO == "Group" {
+			result[p.AROForeignKey] = p.Type
 		}
 	}
-	diags.AddError("Group not found", fmt.Sprintf("Group with name '%s' not found", groupName))
+
+	return result, nil
 }
 
 func buildPasswordState(
@@ -236,13 +302,9 @@ func buildPasswordState(
 	state.Username = types.StringValue(username)
 	state.URI = types.StringValue(uri)
 
-	if password != "" {
-		state.Password = types.StringValue(password)
-	} else if existing.Password.IsUnknown() || existing.Password.IsNull() {
-		state.Password = types.StringNull()
-	} else {
-		state.Password = existing.Password
-	}
+	state.Password = pickPassword(password, existing.Password)
+	state.Description = pickOptional(description)
+	state.FolderParent = pickOptional(folderID)
 
 	if description == "" {
 		state.Description = types.StringNull()
@@ -261,8 +323,32 @@ func buildPasswordState(
 	} else {
 		state.ShareGroup = existing.ShareGroup
 	}
+	if len(existing.ShareGroups) > 0 {
+		state.ShareGroups = existing.ShareGroups
+	} else {
+		state.ShareGroups = nil
+	}
 
 	return state, diags
+}
+
+func pickPassword(actual string, existing types.String) types.String {
+	if actual != "" {
+		return types.StringValue(actual)
+	}
+	if existing.IsUnknown() || existing.IsNull() {
+		return types.StringNull()
+	}
+
+	return existing
+}
+
+func pickOptional(value string) types.String {
+	if value == "" {
+		return types.StringNull()
+	}
+
+	return types.StringValue(value)
 }
 
 // Read retrieves the current state of the resource from Passbolt.
@@ -341,8 +427,10 @@ func updateResourceFields(
 	}
 
 	// Handle re-sharing
-	if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
-		shareResourceWithGroup(ctx, r.client, plan.ShareGroup.ValueString(), state.ID.ValueString(), &diags)
+	if len(plan.ShareGroups) > 0 {
+		shareResourceWithGroups(ctx, r.client, plan.ShareGroups, state.ID.ValueString(), &diags)
+	} else if !plan.ShareGroup.IsUnknown() && !plan.ShareGroup.IsNull() && plan.ShareGroup.ValueString() != "" {
+		shareResourceWithGroups(ctx, r.client, []types.String{plan.ShareGroup}, state.ID.ValueString(), &diags)
 	}
 
 	return diags

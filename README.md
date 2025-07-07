@@ -109,13 +109,17 @@ resource "passbolt_folder" "example" {
 Creates a new password in Passbolt, can share with group.
 
 ```hcl
+data "passbolt_group" "devops" {
+  name = "DevOps"
+}
+
 resource "passbolt_password" "example" {
-  name         = "centifugo_admin"
-  username     = "admin"
-  password     = "MY_SECRET"
-  uri          = "https://centrifugo.example.com"
+  name          = "centifugo_admin"
+  username      = "admin"
+  password      = "MY_SECRET"
+  uri           = "https://centrifugo.example.com"
   folder_parent = passbolt_folder.example.name
-  share_group   = "DevOps"
+  share_groups  = [data.passbolt_group.devops.id]
 }
 ```
 ### Example: Using secret from AWS SSM
@@ -128,13 +132,17 @@ data "aws_ssm_parameter" "centrifugo_admin_password" {
   with_decryption = true
 }
 
+data "passbolt_group" "backend" {
+  name = "Backend"
+}
+
 resource "passbolt_password" "centrifugo_admin_password" {
   name         = "CentrifugoAdmin"
   password     = data.aws_ssm_parameter.centrifugo_admin_password.value
   username     = "no_need"
   uri          = "https://centrifugo-dev.example.com/"
   folder_parent = "Backend"
-  share_group   = "Backend"
+  share_groups = [data.passbolt_group.backend.id]
 }
 ```
 
@@ -171,8 +179,6 @@ resource "passbolt_group" "developers" {
   managers = [data.passbolt_user.dev_manager.id]
 }
 
-
-
 ---
 
 ## Resource: passbolt_group
@@ -202,6 +208,22 @@ output "user_id" {
 
 - Returns `user id`, `role`, `first_name`, and `last_name`
 - Can be used to assign managers in `passbolt_group`, or resolve dependencies
+
+## Data Source: passbolt_group
+
+Look up a group by name, and get its ID.
+
+```hcl
+data "passbolt_group" "devops" {
+  name = "DevOps"
+}
+
+output "group_id" {
+  value = data.passbolt_group.devops.id
+}
+```
+
+Can be used with share_groups in passbolt_password and passbolt_folder_permission.
 
 ## Development
 
