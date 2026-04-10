@@ -11,13 +11,12 @@ import (
 func TestAccFolderDataSource_basic(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" {
-		t.Skip("Acceptance tests skipped unless PASSBOLT_BASE_URL, PASSBOLT_PRIVATE_KEY, and PASSBOLT_PASSPHRASE are set")
-	}
+	folderName := testAccName("acc-folder-test", testAccSuffix())
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,
@@ -33,7 +32,7 @@ EOF
 }
 
 resource "passbolt_folder" "example" {
-  name = "acc-folder-test"
+  name = "%s"
 }
 
 data "passbolt_folders" "all" {
@@ -43,9 +42,10 @@ data "passbolt_folders" "all" {
 output "created_folder" {
   value = passbolt_folder.example.name
 }
-`, baseURL, privateKey, passphrase),
+`, baseURL, privateKey, passphrase, folderName),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("data.passbolt_folders.all", "folders.0.id"),
+					resource.TestCheckResourceAttrSet("data.passbolt_folders.all", "folders.0.path"),
 				),
 			},
 		},

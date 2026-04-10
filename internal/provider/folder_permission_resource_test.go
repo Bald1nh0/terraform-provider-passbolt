@@ -11,21 +11,22 @@ import (
 func TestAccFolderPermissionResource_basic(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE", "PASSBOLT_MANAGER_ID")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
 	managerID := os.Getenv("PASSBOLT_MANAGER_ID")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" || managerID == "" {
-		t.Skip("PASSBOLT_BASE_URL, PRIVATE_KEY, PASSPHRASE, and MANAGER_ID must be set for acceptance tests")
-	}
+	suffix := testAccSuffix()
+	groupName := testAccName("test-perm-group", suffix)
+	folderName := testAccName("shared-folder", suffix)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
-			testStepCreatePermissionWithGroup(baseURL, privateKey, passphrase, managerID, "read"),
-			testStepNoDriftPermissionWithGroup(baseURL, privateKey, passphrase, managerID, "read"),
-			testStepUpdatePermissionWithGroup(baseURL, privateKey, passphrase, managerID, "owner"),
+			testStepCreatePermissionWithGroup(baseURL, privateKey, passphrase, managerID, groupName, folderName, "read"),
+			testStepNoDriftPermissionWithGroup(baseURL, privateKey, passphrase, managerID, groupName, folderName, "read"),
+			testStepUpdatePermissionWithGroup(baseURL, privateKey, passphrase, managerID, groupName, folderName, "owner"),
 		},
 	})
 }
@@ -35,12 +36,14 @@ func testStepCreatePermissionWithGroup(
 	privateKey,
 	passphrase,
 	managerID,
+	groupName,
+	folderName,
 	permission string) resource.TestStep {
 	return resource.TestStep{
-		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, permission),
+		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, groupName, folderName, permission),
 		Check: resource.ComposeTestCheckFunc(
-			resource.TestCheckResourceAttr("passbolt_group.test", "name", "test-perm-group"),
-			resource.TestCheckResourceAttr("passbolt_folder.shared", "name", "shared-folder"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+			resource.TestCheckResourceAttr("passbolt_folder.shared", "name", folderName),
 			resource.TestCheckResourceAttr("passbolt_folder_permission.perm", "permission", permission),
 		),
 	}
@@ -51,9 +54,11 @@ func testStepNoDriftPermissionWithGroup(
 	privateKey,
 	passphrase,
 	managerID,
+	groupName,
+	folderName,
 	permission string) resource.TestStep {
 	return resource.TestStep{
-		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, permission),
+		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, groupName, folderName, permission),
 		Check: resource.ComposeTestCheckFunc(
 			resource.TestCheckResourceAttr("passbolt_folder_permission.perm", "permission", permission),
 		),
@@ -65,16 +70,26 @@ func testStepUpdatePermissionWithGroup(
 	privateKey,
 	passphrase,
 	managerID,
+	groupName,
+	folderName,
 	permission string) resource.TestStep {
 	return resource.TestStep{
-		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, permission),
+		Config: testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, groupName, folderName, permission),
 		Check: resource.ComposeTestCheckFunc(
 			resource.TestCheckResourceAttr("passbolt_folder_permission.perm", "permission", permission),
 		),
 	}
 }
 
-func testPermissionWithGroupConfig(baseURL, privateKey, passphrase, managerID, permission string) string {
+func testPermissionWithGroupConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	groupName,
+	folderName,
+	permission string,
+) string {
 	return fmt.Sprintf(`
 provider "passbolt" {
   base_url    = "%s"
@@ -85,12 +100,12 @@ EOF
 }
 
 resource "passbolt_group" "test" {
-  name     = "test-perm-group"
+  name     = "%s"
   managers = ["%s"]
 }
 
 resource "passbolt_folder" "shared" {
-  name = "shared-folder"
+  name = "%s"
 }
 
 resource "passbolt_folder_permission" "perm" {
@@ -98,5 +113,5 @@ resource "passbolt_folder_permission" "perm" {
   group_name = passbolt_group.test.name
   permission = "%s"
 }
-`, baseURL, privateKey, passphrase, managerID, permission)
+`, baseURL, privateKey, passphrase, groupName, managerID, folderName, permission)
 }

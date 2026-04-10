@@ -97,10 +97,22 @@ provider "passbolt" {
 Creates a new folder in Passbolt.
 
 ```hcl
-resource "passbolt_folder" "example" {
-  name = "Terraform Test Folder"
+resource "passbolt_folder" "application_a" {
+  name = "application_A"
+}
+
+resource "passbolt_folder" "application_a_prod" {
+  name          = "prod"
+  folder_parent = passbolt_folder.application_a.id
+}
+
+resource "passbolt_folder" "application_a_prod_sub_folder_3" {
+  name          = "sub_folder_3"
+  folder_parent = "/application_A/prod"
 }
 ```
+
+`folder_parent` accepts a unique folder name, a folder UUID, or an absolute path such as `/application_A/prod`.
 
 ---
 
@@ -118,7 +130,7 @@ resource "passbolt_password" "example" {
   username      = "admin"
   password      = "MY_SECRET"
   uri           = "https://centrifugo.example.com"
-  folder_parent = passbolt_folder.example.name
+  folder_parent = passbolt_folder.application_a_prod.id
   share_groups  = [data.passbolt_group.devops.id]
 }
 ```
@@ -137,12 +149,12 @@ data "passbolt_group" "backend" {
 }
 
 resource "passbolt_password" "centrifugo_admin_password" {
-  name         = "CentrifugoAdmin"
-  password     = data.aws_ssm_parameter.centrifugo_admin_password.value
-  username     = "no_need"
-  uri          = "https://centrifugo-dev.example.com/"
+  name          = "CentrifugoAdmin"
+  password      = data.aws_ssm_parameter.centrifugo_admin_password.value
+  username      = "no_need"
+  uri           = "https://centrifugo-dev.example.com/"
   folder_parent = "Backend"
-  share_groups = [data.passbolt_group.backend.id]
+  share_groups  = [data.passbolt_group.backend.id]
 }
 ```
 
@@ -225,12 +237,35 @@ output "group_id" {
 
 Can be used with share_groups in passbolt_password and passbolt_folder_permission.
 
+## Data Source: passbolt_folders
+
+Look up all folders, including their resolved absolute paths.
+
+```hcl
+data "passbolt_folders" "all" {}
+
+output "all_folder_paths" {
+  value = [for f in data.passbolt_folders.all.folders : f.path]
+}
+```
+
 ## Development
 
 - Fork, edit, and build as above.
 - Register new resources in `provider.go`.
 - See `internal/provider/*` for implementation examples.
 - PRs (with issue or description please!) are welcome.
+
+## Testing
+
+- Unit tests: `go test ./...`
+- Acceptance tests: `TF_ACC=1 go test ./... -count=1 -v`
+- Acceptance test environment:
+  - `PASSBOLT_BASE_URL`
+  - `PASSBOLT_PRIVATE_KEY`
+  - `PASSBOLT_PASSPHRASE`
+  - `PASSBOLT_MANAGER_ID`
+  - `PASSBOLT_TEST_USER_EMAIL`
 
 ---
 
@@ -263,5 +298,3 @@ After pushing to the main branch and releasing a new tag, the Terraform Registry
 
 **Pro-tip:**  
 All schema `Description` and code examples placed in the `examples/` directory will be automatically included in the Markdown docs. Always keep your examples and schema descriptions up to date for accurate public documentation.
-
-

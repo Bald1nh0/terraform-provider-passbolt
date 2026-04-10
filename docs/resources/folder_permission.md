@@ -46,6 +46,8 @@ resource "passbolt_folder_permission" "example" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Folder permission can be imported using folder_id:group_name
 terraform import passbolt_folder_permission.example 1111aaaa-2222-bbbb-3333-cccc4444dddd:DevOps

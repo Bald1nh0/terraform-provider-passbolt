@@ -48,6 +48,8 @@ resource "passbolt_group" "example" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Group can be imported by specifying the UUID.
 terraform import passbolt_group.example 5d72bc5d-eeee-dddd-cccc-fedcba987654

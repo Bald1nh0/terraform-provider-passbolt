@@ -4,6 +4,9 @@ OS=$(shell uname | tr A-Z a-z)
 ARCH=amd64
 PLUGIN_NAMESPACE=bald1nh0
 PLUGIN_PATH=~/.terraform.d/plugins/$(PLUGIN_NAMESPACE)/passbolt/$(VERSION)/$(OS)_$(ARCH)
+LOCAL_BIN=$(CURDIR)/.bin
+GOLANGCI_LINT_VERSION=v2.1.6
+GOLANGCI_LINT=$(LOCAL_BIN)/golangci-lint
 
 .PHONY: all build install lint test docs generate setup clean release
 
@@ -18,8 +21,8 @@ install: build
 	chmod +x $(PLUGIN_PATH)/$(BINARY_NAME)_v$(VERSION)
 	@echo "✅ Installed to $(PLUGIN_PATH)"
 
-lint:
-	golangci-lint run
+lint: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run
 
 test:
 	TF_ACC=1 go test ./... -v
@@ -30,22 +33,13 @@ generate:
 docs: generate
 	@echo "📚 Docs generated in ./docs"
 
-setup:
-	@echo "🔍 Checking golangci-lint..."
-	@if ! [ -x "$$(command -v golangci-lint)" ]; then \
-		echo "⏳ Installing golangci-lint v2.0.0..."; \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.0.0; \
-	else \
-		version=$$(golangci-lint version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-		required="v2.0.0"; \
-		if [ "$$(printf "%s\n%s\n" "$$required" "$$version" | sort -V | head -1)" != "$$required" ]; then \
-			echo "❌ golangci-lint $$version is too old. Upgrading..."; \
-			go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6; \
-		else \
-			echo "✅ golangci-lint $$version is up to date."; \
-		fi \
-	fi
+$(GOLANGCI_LINT):
+	@echo "⏳ Installing golangci-lint $(GOLANGCI_LINT_VERSION) into $(LOCAL_BIN)..."
+	@mkdir -p $(LOCAL_BIN)
+	@GOBIN=$(LOCAL_BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
+setup: $(GOLANGCI_LINT)
+	@echo "🔍 Using golangci-lint from $(GOLANGCI_LINT)"
 	@echo "✅ Setup complete."
 
 

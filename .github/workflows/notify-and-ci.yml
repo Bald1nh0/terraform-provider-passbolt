@@ -48,8 +48,15 @@ jobs:
           args: --timeout 5m
 
       - name: Run tests
+        env:
+          TF_ACC: "1"
+          PASSBOLT_BASE_URL: ${{ vars.PASSBOLT_BASE_URL != '' && vars.PASSBOLT_BASE_URL || secrets.PASSBOLT_BASE_URL }}
+          PASSBOLT_PRIVATE_KEY: ${{ secrets.PASSBOLT_PRIVATE_KEY != '' && secrets.PASSBOLT_PRIVATE_KEY || vars.PASSBOLT_PRIVATE_KEY }}
+          PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
+          PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
+          PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
         run: |
-          TF_ACC=1 go test ./... -v
+          go test ./... -v
 
   notify-success:
     if: ${{ success() && github.event_name == 'pull_request' }}

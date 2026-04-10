@@ -19,14 +19,18 @@ output "all_folder_names" {
   value = [for f in data.passbolt_folders.all.folders : f.name]
 }
 
-# Or use folder info in another resource/module:
+output "all_folder_paths" {
+  value = [for f in data.passbolt_folders.all.folders : f.path]
+}
+
+# Or use folder path to safely select a UUID in another resource/module:
 
 resource "passbolt_password" "example" {
   name          = "Centrifugo admin"
   username      = "centrifugo"
   password      = "secret"
   uri           = "https://centrifugo.example.com"
-  folder_parent = one([for f in data.passbolt_folders.all.folders : f.name if f.name == "Terraform Folders"])
+  folder_parent = one([for f in data.passbolt_folders.all.folders : f.id if f.path == "/Terraform Folders"])
 }
 ```
 
@@ -49,4 +53,5 @@ Read-Only:
 - `modified` (String) Last modified timestamp (RFC3339).
 - `modified_by` (String) User ID that last modified the folder.
 - `name` (String) Name of the Passbolt folder.
+- `path` (String) Absolute folder path (for example `/application_A/prod`).
 - `personal` (Boolean) True if folder is a personal folder (not shared).

@@ -11,48 +11,49 @@ import (
 func TestAccPassboltGroup_fullLifecycle(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE", "PASSBOLT_MANAGER_ID")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
 	managerID := os.Getenv("PASSBOLT_MANAGER_ID")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" || managerID == "" {
-		t.Skip("PASSBOLT_BASE_URL, PRIVATE_KEY, PASSPHRASE, and MANAGER_ID must be set for acceptance tests")
-	}
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group", suffix)
+	updatedGroupName := testAccName("renamed-group", suffix)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
-			testStepCreateGroup(baseURL, privateKey, passphrase, managerID),
-			testStepNoDriftGroup(baseURL, privateKey, passphrase, managerID),
-			testStepUpdateGroup(baseURL, privateKey, passphrase, managerID),
+			testStepCreateGroup(baseURL, privateKey, passphrase, managerID, groupName),
+			testStepNoDriftGroup(baseURL, privateKey, passphrase, managerID, groupName),
+			testStepUpdateGroup(baseURL, privateKey, passphrase, managerID, updatedGroupName),
 		},
 	})
 }
 
-func testStepCreateGroup(baseURL, privateKey, passphrase, managerID string) resource.TestStep {
+func testStepCreateGroup(baseURL, privateKey, passphrase, managerID, groupName string) resource.TestStep {
 	return resource.TestStep{
-		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, "test-group"),
+		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, groupName),
 		Check: resource.ComposeTestCheckFunc(
-			resource.TestCheckResourceAttr("passbolt_group.test", "name", "test-group"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
 		),
 	}
 }
 
-func testStepNoDriftGroup(baseURL, privateKey, passphrase, managerID string) resource.TestStep {
+func testStepNoDriftGroup(baseURL, privateKey, passphrase, managerID, groupName string) resource.TestStep {
 	return resource.TestStep{
-		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, "test-group"),
+		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, groupName),
 		Check: resource.ComposeTestCheckFunc(
-			resource.TestCheckResourceAttr("passbolt_group.test", "name", "test-group"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
 		),
 	}
 }
 
-func testStepUpdateGroup(baseURL, privateKey, passphrase, managerID string) resource.TestStep {
+func testStepUpdateGroup(baseURL, privateKey, passphrase, managerID, groupName string) resource.TestStep {
 	return resource.TestStep{
-		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, "renamed-group"),
+		Config: testGroupConfig(baseURL, privateKey, passphrase, managerID, groupName),
 		Check: resource.ComposeTestCheckFunc(
-			resource.TestCheckResourceAttr("passbolt_group.test", "name", "renamed-group"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
 		),
 	}
 }

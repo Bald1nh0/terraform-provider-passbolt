@@ -11,30 +11,29 @@ import (
 func TestAccPassboltUser_fullLifecycle(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" {
-		t.Skip("Set PASSBOLT_BASE_URL, PRIVATE_KEY and PASSPHRASE to run acceptance tests")
-	}
+	email := testAccEmail("acc.user", testAccSuffix())
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
-			testStepCreateUser(baseURL, privateKey, passphrase),
-			testStepNoDriftUser(baseURL, privateKey, passphrase),
-			testStepUpdateUser(baseURL, privateKey, passphrase),
+			testStepCreateUser(baseURL, privateKey, passphrase, email),
+			testStepNoDriftUser(baseURL, privateKey, passphrase, email),
+			testStepUpdateUser(baseURL, privateKey, passphrase, email),
 		},
 	})
 }
 
-func testStepCreateUser(baseURL, privateKey, passphrase string) resource.TestStep {
+func testStepCreateUser(baseURL, privateKey, passphrase, email string) resource.TestStep {
 	return resource.TestStep{
 		Config: testUserConfig(baseURL, privateKey, passphrase,
-			"acc.user@example.com", "Terraform", "User", "user"),
+			email, "Terraform", "User", "user"),
 		Check: resource.ComposeTestCheckFunc(
-			resource.TestCheckResourceAttr("passbolt_user.test", "username", "acc.user@example.com"),
+			resource.TestCheckResourceAttr("passbolt_user.test", "username", email),
 			resource.TestCheckResourceAttr("passbolt_user.test", "first_name", "Terraform"),
 			resource.TestCheckResourceAttr("passbolt_user.test", "last_name", "User"),
 			resource.TestCheckResourceAttr("passbolt_user.test", "role", "user"),
@@ -42,20 +41,20 @@ func testStepCreateUser(baseURL, privateKey, passphrase string) resource.TestSte
 	}
 }
 
-func testStepNoDriftUser(baseURL, privateKey, passphrase string) resource.TestStep {
+func testStepNoDriftUser(baseURL, privateKey, passphrase, email string) resource.TestStep {
 	return resource.TestStep{
 		Config: testUserConfig(baseURL, privateKey, passphrase,
-			"acc.user@example.com", "Terraform", "User", "user"),
+			email, "Terraform", "User", "user"),
 		Check: resource.ComposeTestCheckFunc(
 			resource.TestCheckResourceAttr("passbolt_user.test", "role", "user"),
 		),
 	}
 }
 
-func testStepUpdateUser(baseURL, privateKey, passphrase string) resource.TestStep {
+func testStepUpdateUser(baseURL, privateKey, passphrase, email string) resource.TestStep {
 	return resource.TestStep{
 		Config: testUserConfig(baseURL, privateKey, passphrase,
-			"acc.user@example.com", "Updated", "User", "admin"),
+			email, "Updated", "User", "admin"),
 		Check: resource.ComposeTestCheckFunc(
 			resource.TestCheckResourceAttr("passbolt_user.test", "first_name", "Updated"),
 			resource.TestCheckResourceAttr("passbolt_user.test", "last_name", "User"),

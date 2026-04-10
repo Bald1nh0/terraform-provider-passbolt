@@ -59,6 +59,8 @@ resource "passbolt_password" "example" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Password can be imported by specifying the UUID.
 terraform import passbolt_password.example 3c29bc5d-ffff-cccc-bbbb-abcdefabcdef

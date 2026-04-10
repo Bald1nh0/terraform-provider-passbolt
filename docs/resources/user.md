@@ -39,6 +39,8 @@ resource "passbolt_user" "test" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # User can be imported by UUID.
 terraform import passbolt_user.example 9999ffff-8888-7777-6666-5555eeeeeeee

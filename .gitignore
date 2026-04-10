@@ -5,6 +5,7 @@ example.tf
 terraform.tfplan
 terraform.tfstate
 bin/
+.bin/
 dist/
 test/
 modules-dev/
@@ -24,6 +25,7 @@ website/node_modules
 .idea
 *.iml
 *.test
+terraform-provider-passbolt_v*
 
 website/vendor
 
