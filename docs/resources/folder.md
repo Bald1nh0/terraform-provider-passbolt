@@ -16,13 +16,18 @@ Folders can optionally have a parent folder (nesting is supported).
 ## Example Usage
 
 ```terraform
-resource "passbolt_folder" "example" {
-  name = "Terraform Test Folder"
+resource "passbolt_folder" "application_a" {
+  name = "application_A"
 }
 
-resource "passbolt_folder" "nested" {
-  name          = "Nested Folder"
-  folder_parent = passbolt_folder.example.name
+resource "passbolt_folder" "application_a_prod" {
+  name          = "prod"
+  folder_parent = passbolt_folder.application_a.id
+}
+
+resource "passbolt_folder" "application_a_prod_sub_folder_3" {
+  name          = "sub_folder_3"
+  folder_parent = "/application_A/prod"
 }
 ```
 
@@ -35,16 +40,19 @@ resource "passbolt_folder" "nested" {
 
 ### Optional
 
-- `folder_parent` (String) Name of the parent folder to create this one under. If omitted, the folder will be created at the top level. If set, this must be a valid folder name (not empty).
+- `folder_parent` (String) Reference to the parent folder. Accepts a unique folder name, a folder UUID, or an absolute path such as `/application_A/prod`. If omitted, the folder will be created at the top level.
 
 ### Read-Only
 
+- `folder_parent_id` (String) Resolved UUID of the parent folder.
 - `id` (String) The UUID of the Passbolt folder.
 - `personal` (Boolean) Whether the folder is a personal folder. Always false for Terraform-created folders.
 
 ## Import
 
 Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
 # Folder can be imported by specifying the UUID.

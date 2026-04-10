@@ -33,6 +33,7 @@ type foldersDataSourceModel struct {
 type foldersModel struct {
 	ID             types.String `tfsdk:"id"`
 	Name           types.String `tfsdk:"name"`
+	Path           types.String `tfsdk:"path"`
 	Created        types.String `tfsdk:"created"`
 	Modified       types.String `tfsdk:"modified"`
 	CreatedBy      types.String `tfsdk:"created_by"`
@@ -95,6 +96,10 @@ func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 							Computed:    true,
 							Description: "Name of the Passbolt folder.",
 						},
+						"path": schema.StringAttribute{
+							Computed:    true,
+							Description: "Absolute folder path (for example `/application_A/prod`).",
+						},
 						"created": schema.StringAttribute{
 							Computed:    true,
 							Description: "Creation timestamp (RFC3339).",
@@ -139,11 +144,19 @@ func (d *foldersDataSource) Read(ctx context.Context, _ datasource.ReadRequest, 
 		return
 	}
 
+	pathsByID, err := buildFolderPathIndex(folders)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to build folder paths", err.Error())
+
+		return
+	}
+
 	// Map response body to model
 	for _, folder := range folders {
 		folderState := foldersModel{
 			ID:             types.StringValue(folder.ID),
 			Name:           types.StringValue(folder.Name),
+			Path:           types.StringValue(pathsByID[folder.ID]),
 			Created:        types.StringValue(folder.Created.String()),
 			Modified:       types.StringValue(folder.Modified.String()),
 			CreatedBy:      types.StringValue(folder.CreatedBy),

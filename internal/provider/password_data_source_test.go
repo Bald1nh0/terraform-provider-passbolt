@@ -11,15 +11,12 @@ import (
 func TestAccPasswordDataSource_basic(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" {
-		t.Skip("Acceptance tests skipped unless PASSBOLT_BASE_URL, PASSBOLT_PRIVATE_KEY, and PASSBOLT_PASSPHRASE are set")
-	}
-
-	resourceName := "acc-ds-test"
+	resourceName := testAccName("acc-ds-test", testAccSuffix())
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,

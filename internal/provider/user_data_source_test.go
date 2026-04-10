@@ -11,14 +11,12 @@ import (
 func TestAccPassboltUserDataSource_lookup(t *testing.T) {
 	t.Parallel()
 
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE", "PASSBOLT_TEST_USER_EMAIL")
+
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
 	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
 	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
 	testEmail := os.Getenv("PASSBOLT_TEST_USER_EMAIL")
-
-	if baseURL == "" || privateKey == "" || passphrase == "" || testEmail == "" {
-		t.Skip("PASSBOLT_BASE_URL, PRIVATE_KEY, PASSPHRASE, and PASSBOLT_TEST_USER_EMAIL must be set")
-	}
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProviderFactories,

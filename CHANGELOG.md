@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.4.0 — 2026-04-10
+
+### ✨ Added
+
+- `passbolt_folder.folder_parent` now accepts a unique folder name, folder UUID, or an absolute path such as `/application_A/prod`.
+- `data "passbolt_folders"` now exposes a computed `path` attribute for each folder.
+
+### 🛠 Improved
+
+- Duplicate folder names now return a clear error instead of silently picking an arbitrary parent folder.
+- `passbolt_folder` now stores the resolved `folder_parent_id` and applies folder moves when `folder_parent` changes.
+- Acceptance tests now require `TF_ACC=1` and use unique resource names so they can run safely against a shared Passbolt instance.
+- GitHub Actions CI now runs both unit tests and real acceptance tests.
+
 ## v1.2.0 — 2025-07-07
 
 ### ✨ Added

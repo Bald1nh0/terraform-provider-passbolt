@@ -34,10 +34,11 @@ type folderResource struct {
 
 // created, modified, created_by, modified_by, and folder_parent_id
 type foldersModelCreate struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	FolderParent types.String `tfsdk:"folder_parent"`
-	Personal     types.Bool   `tfsdk:"personal"`
+	ID             types.String `tfsdk:"id"`
+	Name           types.String `tfsdk:"name"`
+	FolderParent   types.String `tfsdk:"folder_parent"`
+	FolderParentID types.String `tfsdk:"folder_parent_id"`
+	Personal       types.Bool   `tfsdk:"personal"`
 }
 
 // Configure adds the provider configured client to the resource.
@@ -97,12 +98,16 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 
 			"folder_parent": schema.StringAttribute{
 				Optional: true,
-				Description: "Name of the parent folder to create this one under. " +
-					"If omitted, the folder will be created at the top level. " +
-					"If set, this must be a valid folder name (not empty).",
+				Description: "Reference to the parent folder. Accepts a unique folder name, " +
+					"a folder UUID, or an absolute path such as `/application_A/prod`. " +
+					"If omitted, the folder will be created at the top level.",
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
 				},
+			},
+			"folder_parent_id": schema.StringAttribute{
+				Computed:    true,
+				Description: "Resolved UUID of the parent folder.",
 			},
 		},
 	}
@@ -124,20 +129,10 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 		plan.FolderParent = types.StringNull()
 	}
 
-	folders, err := r.client.Client.GetFolders(ctx, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Cannot get folders", "")
-
+	folderID, diags := resolveFolderReference(ctx, r.client, plan.FolderParent)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	var folderID string
-	if !plan.FolderParent.IsUnknown() && !plan.FolderParent.IsNull() {
-		for _, folder := range folders {
-			if folder.Name == plan.FolderParent.ValueString() {
-				folderID = folder.ID
-			}
-		}
 	}
 
 	cFolder, errCreate := r.client.Client.CreateFolder(ctx, api.Folder{
@@ -152,6 +147,7 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	plan.ID = types.StringValue(cFolder.ID)
+	plan.FolderParentID = pickOptional(folderID)
 	plan.Personal = types.BoolValue(cFolder.Personal)
 
 	tflog.Info(ctx, "Created folder", map[string]any{
@@ -183,13 +179,8 @@ func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, res
 		if f.ID == state.ID.ValueString() {
 			state.Name = types.StringValue(f.Name)
 			state.ID = types.StringValue(f.ID)
-
-			if f.FolderParentID == "" {
-				state.FolderParent = types.StringNull()
-			} else {
-				state.FolderParent = types.StringValue(f.FolderParentID)
-			}
-
+			state.FolderParent = reconcileFolderParentReference(state.FolderParent, f.FolderParentID, folders)
+			state.FolderParentID = pickOptional(f.FolderParentID)
 			state.Personal = types.BoolValue(f.Personal)
 
 			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -225,6 +216,17 @@ func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest,
 		"name": plan.Name.ValueString(),
 	})
 
+	plan.FolderParent = normalizeFolderParent(plan.FolderParent)
+	desiredParentID, diags := resolveFolderReference(ctx, r.client, plan.FolderParent)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !r.moveFolderIfNeeded(ctx, state, desiredParentID, resp) {
+		return
+	}
+
 	_, err := r.client.Client.UpdateFolder(ctx, state.ID.ValueString(), api.Folder{
 		Name: plan.Name.ValueString(),
 	})
@@ -237,16 +239,7 @@ func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	// Preserve required fields to avoid drift
-	plan.ID = state.ID
-
-	if plan.FolderParent.IsUnknown() || plan.FolderParent.ValueString() == "" {
-		plan.FolderParent = types.StringNull()
-	}
-
-	if plan.Personal.IsUnknown() {
-		plan.Personal = state.Personal
-	}
+	plan = finalizeFolderPlan(plan, state, desiredParentID)
 
 	tflog.Info(ctx, "Update folder resource: applying state", map[string]any{
 		"id":       plan.ID.ValueString(),
@@ -269,6 +262,48 @@ func (r *folderResource) Delete(ctx context.Context, req resource.DeleteRequest,
 			resp.Diagnostics.AddError("Error deleting folder", err.Error())
 		}
 	}
+}
+
+func normalizeFolderParent(parent types.String) types.String {
+	if parent.IsUnknown() || parent.IsNull() || parent.ValueString() != "" {
+		return parent
+	}
+
+	return types.StringNull()
+}
+
+func (r *folderResource) moveFolderIfNeeded(
+	ctx context.Context,
+	state foldersModelCreate,
+	desiredParentID string,
+	resp *resource.UpdateResponse,
+) bool {
+	if desiredParentID == state.FolderParentID.ValueString() {
+		return true
+	}
+
+	if err := r.client.Client.MoveFolder(ctx, state.ID.ValueString(), desiredParentID); err != nil {
+		tflog.Error(ctx, "Update: API move failed", map[string]any{
+			"error": err.Error(),
+		})
+		resp.Diagnostics.AddError("Cannot move folder", err.Error())
+
+		return false
+	}
+
+	return true
+}
+
+func finalizeFolderPlan(plan, state foldersModelCreate, desiredParentID string) foldersModelCreate {
+	plan.ID = state.ID
+	plan.FolderParentID = pickOptional(desiredParentID)
+	plan.FolderParent = normalizeFolderParent(plan.FolderParent)
+
+	if plan.Personal.IsUnknown() {
+		plan.Personal = state.Personal
+	}
+
+	return plan
 }
 
 func isNotFoundError(err error) bool {
