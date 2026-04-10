@@ -38,7 +38,7 @@ func resolveFolderReference(
 
 	folderID, err := resolveFolderReferenceValue(folders, value)
 	if err != nil {
-		diags.AddError("Folder not found", err.Error())
+		diags.AddError("Invalid folder reference", err.Error())
 
 		return "", diags
 	}

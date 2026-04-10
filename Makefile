@@ -21,7 +21,7 @@ install: build
 	chmod +x $(PLUGIN_PATH)/$(BINARY_NAME)_v$(VERSION)
 	@echo "✅ Installed to $(PLUGIN_PATH)"
 
-lint:
+lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run
 
 test:
