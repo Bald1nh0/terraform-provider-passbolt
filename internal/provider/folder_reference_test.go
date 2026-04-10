@@ -71,6 +71,11 @@ func folderReferenceTestCases() []struct {
 			expectedID: "application-a-prod",
 		},
 		{
+			name:        "reject whitespace-only reference",
+			value:       "   ",
+			expectedErr: "folder reference cannot be only whitespace",
+		},
+		{
 			name:        "reject ambiguous name",
 			value:       "dev",
 			expectedErr: `folder name "dev" is ambiguous`,
@@ -79,6 +84,11 @@ func folderReferenceTestCases() []struct {
 			name:        "reject missing path",
 			value:       "/application_A/stage",
 			expectedErr: `folder with path "/application_A/stage" not found`,
+		},
+		{
+			name:        "reject path with dot segments",
+			value:       "/application_A/prod/../dev",
+			expectedErr: `must not contain '.' or '..' segments`,
 		},
 	}
 }

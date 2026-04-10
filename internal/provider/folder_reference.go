@@ -24,7 +24,12 @@ func resolveFolderReference(
 		return "", diags
 	}
 
-	value := strings.TrimSpace(folder.ValueString())
+	value, err := normalizeFolderReferenceValue(folder.ValueString())
+	if err != nil {
+		diags.AddError("Invalid folder reference", err.Error())
+
+		return "", diags
+	}
 	if value == "" {
 		return "", diags
 	}
@@ -47,7 +52,11 @@ func resolveFolderReference(
 }
 
 func resolveFolderReferenceValue(folders []api.Folder, value string) (string, error) {
-	value = strings.TrimSpace(value)
+	var err error
+	value, err = normalizeFolderReferenceValue(value)
+	if err != nil {
+		return "", err
+	}
 	if value == "" {
 		return "", nil
 	}
@@ -185,6 +194,9 @@ func normalizeFolderPath(value string) (string, error) {
 	if !strings.HasPrefix(value, "/") {
 		return "", fmt.Errorf("folder path %q must start with '/'", value)
 	}
+	if hasRelativePathSegments(value) {
+		return "", fmt.Errorf("folder path %q must not contain '.' or '..' segments", value)
+	}
 
 	normalized := stdpath.Clean(value)
 	if normalized == "." || normalized == "/" {
@@ -192,6 +204,29 @@ func normalizeFolderPath(value string) (string, error) {
 	}
 
 	return normalized, nil
+}
+
+func normalizeFolderReferenceValue(rawValue string) (string, error) {
+	value := strings.TrimSpace(rawValue)
+	if value == "" {
+		if rawValue != "" {
+			return "", fmt.Errorf("folder reference cannot be only whitespace")
+		}
+
+		return "", nil
+	}
+
+	return value, nil
+}
+
+func hasRelativePathSegments(value string) bool {
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+
+	return false
 }
 
 func reconcileFolderParentReference(existing types.String, remoteParentID string, folders []api.Folder) types.String {
