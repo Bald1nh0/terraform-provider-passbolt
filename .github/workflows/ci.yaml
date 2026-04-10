@@ -53,6 +53,12 @@ jobs:
         run: go test ./... -count=1
 
       - name: Check acceptance test environment
+        env:
+          PASSBOLT_BASE_URL: ${{ vars.PASSBOLT_BASE_URL != '' && vars.PASSBOLT_BASE_URL || secrets.PASSBOLT_BASE_URL }}
+          PASSBOLT_PRIVATE_KEY: ${{ secrets.PASSBOLT_PRIVATE_KEY != '' && secrets.PASSBOLT_PRIVATE_KEY || vars.PASSBOLT_PRIVATE_KEY }}
+          PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
+          PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
+          PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
         run: |
           missing=0
           for name in PASSBOLT_BASE_URL PASSBOLT_PRIVATE_KEY PASSBOLT_PASSPHRASE PASSBOLT_MANAGER_ID PASSBOLT_TEST_USER_EMAIL; do
@@ -68,6 +74,11 @@ jobs:
       - name: Run acceptance tests
         env:
           TF_ACC: "1"
+          PASSBOLT_BASE_URL: ${{ vars.PASSBOLT_BASE_URL != '' && vars.PASSBOLT_BASE_URL || secrets.PASSBOLT_BASE_URL }}
+          PASSBOLT_PRIVATE_KEY: ${{ secrets.PASSBOLT_PRIVATE_KEY != '' && secrets.PASSBOLT_PRIVATE_KEY || vars.PASSBOLT_PRIVATE_KEY }}
+          PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
+          PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
+          PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
         run: go test ./... -count=1 -v
 
       - name: Preview version bump (dry-run)
@@ -93,4 +104,3 @@ jobs:
             --data-urlencode chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             --data-urlencode text="$MSG" \
             -d parse_mode=Markdown
-
