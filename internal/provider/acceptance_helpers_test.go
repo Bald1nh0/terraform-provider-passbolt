@@ -39,5 +39,5 @@ func testAccName(prefix, suffix string) string {
 }
 
 func testAccEmail(prefix, suffix string) string {
-	return fmt.Sprintf("%s-%s@example.com", prefix, suffix)
+	return fmt.Sprintf("test-%s-%s@bald1nh0.net", prefix, suffix)
 }

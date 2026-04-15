@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.0 — 2026-04-15
+
+### ✨ Added
+
+- `passbolt_group.members` now manages regular group members alongside required group managers.
+
+### 🛠 Improved
+
+- `passbolt_group` now validates that users are not configured as both managers and members.
+
 ## v1.4.0 — 2026-04-10
 
 ### ✨ Added

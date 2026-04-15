@@ -3,14 +3,18 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"terraform-provider-passbolt/tools"
 
 	"github.com/passbolt/go-passbolt/helper"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -34,6 +38,7 @@ type groupModel struct {
 	ID       types.String   `tfsdk:"id"`
 	Name     types.String   `tfsdk:"name"`
 	Managers []types.String `tfsdk:"managers"`
+	Members  []types.String `tfsdk:"members"`
 }
 
 func (r *groupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -82,6 +87,22 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				ElementType: types.StringType,
 				Required:    true,
 				Description: "List of user IDs to assign as group managers.",
+				Validators: []validator.List{
+					listvalidator.SizeAtLeast(1),
+					listvalidator.NoNullValues(),
+					listvalidator.UniqueValues(),
+					listvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
+				},
+			},
+			"members": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "List of user IDs to assign as regular group members.",
+				Validators: []validator.List{
+					listvalidator.NoNullValues(),
+					listvalidator.UniqueValues(),
+					listvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
+				},
 			},
 		},
 	}
@@ -94,13 +115,13 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	ops := make([]helper.GroupMembershipOperation, 0, len(plan.Managers))
-	for _, uid := range plan.Managers {
-		ops = append(ops, helper.GroupMembershipOperation{
-			UserID:         uid.ValueString(),
-			IsGroupManager: true,
-		})
+	if err := validateGroupMembershipConfig(plan.Managers, plan.Members); err != nil {
+		resp.Diagnostics.AddError("Invalid group membership", err.Error())
+
+		return
 	}
+
+	ops := buildCreateGroupMembershipOps(plan.Managers, plan.Members)
 
 	groupID, err := helper.CreateGroup(ctx, r.client.Client, plan.Name.ValueString(), ops)
 	if err != nil {
@@ -128,13 +149,11 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	}
 
 	state.Name = types.StringValue(name)
-	var managerIDs []types.String
-	for _, m := range memberships {
-		if m.IsGroupManager {
-			managerIDs = append(managerIDs, types.StringValue(m.UserID))
-		}
-	}
+	managerIDs, memberIDs := splitGroupMemberships(memberships, state.Members != nil)
 	state.Managers = managerIDs
+	if state.Members != nil {
+		state.Members = memberIDs
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -149,9 +168,25 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	added, removed := detectManagerChanges(plan.Managers, state.Managers)
+	if err := validateGroupMembershipConfig(plan.Managers, plan.Members); err != nil {
+		resp.Diagnostics.AddError("Invalid group membership", err.Error())
 
-	ops := buildGroupMembershipOps(added, removed)
+		return
+	}
+
+	stateManagers := state.Managers
+	stateMembers := state.Members
+	if shouldManageRegularMembers(plan.Members, state.Members) {
+		_, memberships, err := helper.GetGroup(ctx, r.client.Client, state.ID.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading group memberships", err.Error())
+
+			return
+		}
+		stateManagers, stateMembers = splitGroupMemberships(memberships, true)
+	}
+
+	ops := buildGroupMembershipOps(plan.Managers, plan.Members, stateManagers, stateMembers)
 
 	err := helper.UpdateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
 	if err != nil {
@@ -164,41 +199,154 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-func detectManagerChanges(planManagers, stateManagers []types.String) (added, removed map[string]bool) {
-	newSet := make(map[string]bool)
-	removed = make(map[string]bool)
-	added = make(map[string]bool)
+func splitGroupMemberships(
+	memberships []helper.GroupMembership,
+	includeMembers bool,
+) ([]types.String, []types.String) {
+	managerIDs := make([]types.String, 0, len(memberships))
+	memberIDs := make([]types.String, 0, len(memberships))
 
-	for _, uid := range planManagers {
-		newSet[uid.ValueString()] = true
-	}
-
-	for _, old := range stateManagers {
-		oldID := old.ValueString()
-		if !newSet[oldID] {
-			removed[oldID] = true
+	for _, membership := range memberships {
+		if membership.IsGroupManager {
+			managerIDs = append(managerIDs, types.StringValue(membership.UserID))
+		} else if includeMembers {
+			memberIDs = append(memberIDs, types.StringValue(membership.UserID))
 		}
 	}
 
-	for uid := range newSet {
-		if !contains(stateManagers, uid) {
-			added[uid] = true
-		}
-	}
-
-	return
+	return managerIDs, memberIDs
 }
 
-func buildGroupMembershipOps(added, removed map[string]bool) []helper.GroupMembershipOperation {
-	ops := make([]helper.GroupMembershipOperation, 0, len(added)+len(removed))
+func shouldManageRegularMembers(planMembers, stateMembers []types.String) bool {
+	return planMembers != nil || stateMembers != nil
+}
 
-	for uid := range added {
+func validateGroupMembershipConfig(managers, members []types.String) error {
+	if len(managers) == 0 {
+		return fmt.Errorf("at least one group manager is required")
+	}
+
+	overlap := overlappingGroupUsers(managers, members)
+	if len(overlap) > 0 {
+		return fmt.Errorf("users cannot be both managers and members: %v", overlap)
+	}
+
+	return nil
+}
+
+func overlappingGroupUsers(managers, members []types.String) []string {
+	managerSet := groupUserSet(managers)
+	overlap := make([]string, 0, len(members))
+
+	for _, uid := range members {
+		userID := uid.ValueString()
+		if managerSet[userID] {
+			overlap = append(overlap, userID)
+		}
+	}
+
+	slices.Sort(overlap)
+
+	return overlap
+}
+
+func buildCreateGroupMembershipOps(managers, members []types.String) []helper.GroupMembershipOperation {
+	ops := make([]helper.GroupMembershipOperation, 0, len(managers)+len(members))
+
+	for _, uid := range managers {
 		ops = append(ops, helper.GroupMembershipOperation{
-			UserID:         uid,
+			UserID:         uid.ValueString(),
 			IsGroupManager: true,
 		})
 	}
-	for uid := range removed {
+
+	for _, uid := range members {
+		ops = append(ops, helper.GroupMembershipOperation{
+			UserID:         uid.ValueString(),
+			IsGroupManager: false,
+		})
+	}
+
+	return ops
+}
+
+func buildGroupMembershipOps(
+	planManagers,
+	planMembers,
+	stateManagers,
+	stateMembers []types.String,
+) []helper.GroupMembershipOperation {
+	desired := groupUserRoleMap(planManagers, planMembers)
+	current := groupUserRoleMap(stateManagers, stateMembers)
+	userIDs := groupUserIDs(desired, current)
+
+	ops := make([]helper.GroupMembershipOperation, 0, len(userIDs))
+	ops = appendMembershipRoleChanges(ops, userIDs, desired, current, true)
+	ops = appendNewGroupMembers(ops, userIDs, desired, current)
+	ops = appendMembershipRoleChanges(ops, userIDs, desired, current, false)
+	ops = appendRemovedGroupUsers(ops, userIDs, desired, current)
+
+	return ops
+}
+
+func appendMembershipRoleChanges(
+	ops []helper.GroupMembershipOperation,
+	userIDs []string,
+	desired,
+	current map[string]bool,
+	isGroupManager bool,
+) []helper.GroupMembershipOperation {
+	for _, uid := range userIDs {
+		desiredRole, desiredExists := desired[uid]
+		currentRole := current[uid]
+		if !desiredExists || desiredRole != isGroupManager || currentRole == desiredRole {
+			continue
+		}
+		ops = append(ops, helper.GroupMembershipOperation{
+			UserID:         uid,
+			IsGroupManager: desiredRole,
+		})
+	}
+
+	return ops
+}
+
+func appendNewGroupMembers(
+	ops []helper.GroupMembershipOperation,
+	userIDs []string,
+	desired,
+	current map[string]bool,
+) []helper.GroupMembershipOperation {
+	for _, uid := range userIDs {
+		desiredRole, desiredExists := desired[uid]
+		if !desiredExists || desiredRole {
+			continue
+		}
+		if _, currentExists := current[uid]; currentExists {
+			continue
+		}
+		ops = append(ops, helper.GroupMembershipOperation{
+			UserID:         uid,
+			IsGroupManager: false,
+		})
+	}
+
+	return ops
+}
+
+func appendRemovedGroupUsers(
+	ops []helper.GroupMembershipOperation,
+	userIDs []string,
+	desired,
+	current map[string]bool,
+) []helper.GroupMembershipOperation {
+	for _, uid := range userIDs {
+		if _, currentExists := current[uid]; !currentExists {
+			continue
+		}
+		if _, desiredExists := desired[uid]; desiredExists {
+			continue
+		}
 		ops = append(ops, helper.GroupMembershipOperation{
 			UserID: uid,
 			Delete: true,
@@ -208,14 +356,44 @@ func buildGroupMembershipOps(added, removed map[string]bool) []helper.GroupMembe
 	return ops
 }
 
-func contains(users []types.String, uid string) bool {
-	for _, u := range users {
-		if u.ValueString() == uid {
-			return true
+func groupUserRoleMap(managers, members []types.String) map[string]bool {
+	roles := make(map[string]bool, len(managers)+len(members))
+
+	for _, uid := range members {
+		roles[uid.ValueString()] = false
+	}
+
+	for _, uid := range managers {
+		roles[uid.ValueString()] = true
+	}
+
+	return roles
+}
+
+func groupUserSet(users []types.String) map[string]bool {
+	result := make(map[string]bool, len(users))
+	for _, uid := range users {
+		result[uid.ValueString()] = true
+	}
+
+	return result
+}
+
+func groupUserIDs(roleMaps ...map[string]bool) []string {
+	seen := make(map[string]bool)
+	for _, roleMap := range roleMaps {
+		for uid := range roleMap {
+			seen[uid] = true
 		}
 	}
 
-	return false
+	userIDs := make([]string, 0, len(seen))
+	for uid := range seen {
+		userIDs = append(userIDs, uid)
+	}
+	slices.Sort(userIDs)
+
+	return userIDs
 }
 
 func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

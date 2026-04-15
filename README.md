@@ -12,7 +12,7 @@ Self-hosted open-source team password manager, with folder, sharing and SSM/auto
 - Grant and revoke group permission to folders (`passbolt_folder_permission` resource)
 - Integration-ready with AWS SSM, Secrets Manager, and other tools
 - Use with your own Passbolt instance (CE or PRO)
-- Manage user groups via `passbolt_group` (with manager assignment)
+- Manage user groups via `passbolt_group` (with manager and member assignment)
 - Look up users by email using `data "passbolt_user"`
 
 ---
@@ -186,10 +186,16 @@ data "passbolt_user" "dev_manager" {
   username = "dev.lead@example.com"
 }
 
+data "passbolt_user" "dev_member" {
+  username = "dev.member@example.com"
+}
+
 resource "passbolt_group" "developers" {
   name     = "Developers"
   managers = [data.passbolt_user.dev_manager.id]
+  members  = [data.passbolt_user.dev_member.id]
 }
+```
 
 ---
 
@@ -199,10 +205,13 @@ resource "passbolt_group" "developers" {
 resource "passbolt_group" "example" {
   name     = "Terraform Group Example"
   managers = ["2a61bc5d-bbbb-aaaa-cccc-123456789abc"] # Must be active Passbolt user UUID
+  members  = ["3b72cd6e-cccc-bbbb-dddd-23456789abcd"] # Optional regular group members
 }
 ```
 
-You can look up user UUIDs using data "passbolt_user" or manually fetch from Passbolt
+Passbolt requires at least one group manager. Regular members can be managed with `members`, and a user must not be present in both `managers` and `members`.
+
+You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt.
 
 ---
 
@@ -266,6 +275,7 @@ output "all_folder_paths" {
   - `PASSBOLT_PASSPHRASE`
   - `PASSBOLT_MANAGER_ID`
   - `PASSBOLT_TEST_USER_EMAIL`
+  - `PASSBOLT_MEMBER_ID` (optional; must be different from `PASSBOLT_MANAGER_ID`)
 
 ---
 
