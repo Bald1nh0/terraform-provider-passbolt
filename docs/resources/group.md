@@ -26,9 +26,15 @@ variable "manager_id" {
   type        = string
 }
 
+variable "member_id" {
+  description = "The UUID of an existing active Passbolt user to add as a regular group member"
+  type        = string
+}
+
 resource "passbolt_group" "example" {
   name     = "Terraform Group Example"
   managers = [var.manager_id]
+  members  = [var.member_id]
 }
 ```
 
@@ -39,6 +45,10 @@ resource "passbolt_group" "example" {
 
 - `managers` (List of String) List of user IDs to assign as group managers.
 - `name` (String) Group name.
+
+### Optional
+
+- `members` (List of String) List of user IDs to assign as regular group members.
 
 ### Read-Only
 
