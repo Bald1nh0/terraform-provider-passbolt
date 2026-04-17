@@ -49,6 +49,8 @@ func testAccEmail(prefix, suffix string) string {
 }
 
 func TestTestAccEmailUsesReservedDomainByDefault(t *testing.T) {
+	t.Setenv("PASSBOLT_TEST_EMAIL_DOMAIN", "")
+
 	got := testAccEmail("acc.user", "123")
 	want := "test-acc.user-123@example.com"
 	if got != want {
