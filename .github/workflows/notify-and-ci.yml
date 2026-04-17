@@ -48,7 +48,11 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        run: make lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.6.2
+          install-mode: goinstall
+          args: --timeout=5m
 
       - name: Run tests
         env:
