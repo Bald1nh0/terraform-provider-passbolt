@@ -10,6 +10,7 @@
 - Bumped the Go toolchain to `1.26.2` and pinned GitHub Actions to the same version.
 - Updated vulnerable transitive dependencies, including `google.golang.org/grpc` to `v1.79.3` and `github.com/cloudflare/circl` to `v1.6.3`.
 - Updated GitHub Actions workflows to Node 24-compatible action majors and opted workflows into `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` for the remaining legacy tagging action.
+- Generated acceptance-test emails now default to `example.com`, with optional override via `PASSBOLT_TEST_EMAIL_DOMAIN`.
 
 ## v1.5.0 — 2026-04-15
 

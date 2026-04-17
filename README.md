@@ -275,6 +275,7 @@ output "all_folder_paths" {
   - `PASSBOLT_PASSPHRASE`
   - `PASSBOLT_MANAGER_ID`
   - `PASSBOLT_TEST_USER_EMAIL`
+  - `PASSBOLT_TEST_EMAIL_DOMAIN` (optional; defaults to `example.com` for generated acceptance-test users)
   - `PASSBOLT_MEMBER_ID` (optional; must be different from `PASSBOLT_MANAGER_ID`)
 
 ---

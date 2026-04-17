@@ -48,10 +48,7 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.1
-          args: --timeout 5m
+        run: make lint
 
       - name: Run tests
         env:
@@ -61,6 +58,7 @@ jobs:
           PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
           PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
           PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
+          PASSBOLT_TEST_EMAIL_DOMAIN: ${{ vars.PASSBOLT_TEST_EMAIL_DOMAIN != '' && vars.PASSBOLT_TEST_EMAIL_DOMAIN || secrets.PASSBOLT_TEST_EMAIL_DOMAIN }}
         run: |
           go test ./... -v
 
