@@ -172,14 +172,16 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan groupModel
 	var state groupModel
+	var configMembers types.List
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("members"), &configMembers)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	planMembers := listStringValues(ctx, plan.Members, &resp.Diagnostics)
+	planMembers := resolveGroupMembersForUpdate(ctx, configMembers, plan.Members, state.Members, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -221,6 +223,20 @@ func listStringValues(ctx context.Context, list types.List, diags *diag.Diagnost
 	diags.Append(list.ElementsAs(ctx, &values, false)...)
 
 	return values
+}
+
+func resolveGroupMembersForUpdate(
+	ctx context.Context,
+	configMembers types.List,
+	planMembers types.List,
+	stateMembers types.List,
+	diags *diag.Diagnostics,
+) []types.String {
+	if configMembers.IsNull() || configMembers.IsUnknown() || planMembers.IsUnknown() {
+		return listStringValues(ctx, stateMembers, diags)
+	}
+
+	return listStringValues(ctx, planMembers, diags)
 }
 
 func listStringValue(values []types.String) types.List {

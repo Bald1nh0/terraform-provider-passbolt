@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -88,6 +89,82 @@ func TestGroupMembersAttributeDoesNotUseStateForUnknown(t *testing.T) {
 
 	if len(listAttr.PlanModifiers) != 0 {
 		t.Fatalf("expected members to have no plan modifiers, got %d", len(listAttr.PlanModifiers))
+	}
+}
+
+func TestResolveGroupMembersForUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		configMembers types.List
+		planMembers   types.List
+		stateMembers  types.List
+		want          []types.String
+	}{
+		"preserves state when members omitted": {
+			configMembers: types.ListNull(types.StringType),
+			planMembers:   types.ListUnknown(types.StringType),
+			stateMembers:  listStringValue(stringValues("member-1")),
+			want:          stringValues("member-1"),
+		},
+		"preserves state when members remain unknown": {
+			configMembers: types.ListUnknown(types.StringType),
+			planMembers:   types.ListUnknown(types.StringType),
+			stateMembers:  listStringValue(stringValues("member-1")),
+			want:          stringValues("member-1"),
+		},
+		"uses explicit empty members list": {
+			configMembers: listStringValue([]types.String{}),
+			planMembers:   listStringValue([]types.String{}),
+			stateMembers:  listStringValue(stringValues("member-1")),
+			want:          nil,
+		},
+		"uses configured members list": {
+			configMembers: listStringValue(stringValues("member-2")),
+			planMembers:   listStringValue(stringValues("member-2")),
+			stateMembers:  listStringValue(stringValues("member-1")),
+			want:          stringValues("member-2"),
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assertResolvedGroupMembers(t, test.configMembers, test.planMembers, test.stateMembers, test.want)
+		})
+	}
+}
+
+func assertResolvedGroupMembers(
+	t *testing.T,
+	configMembers types.List,
+	planMembers types.List,
+	stateMembers types.List,
+	want []types.String,
+) {
+	t.Helper()
+
+	var diags diag.Diagnostics
+	got := resolveGroupMembersForUpdate(
+		context.Background(),
+		configMembers,
+		planMembers,
+		stateMembers,
+		&diags,
+	)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d members, got %d: %#v", len(want), len(got), got)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("member %d: expected %#v, got %#v", i, want[i], got[i])
+		}
 	}
 }
 
