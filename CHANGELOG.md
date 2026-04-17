@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.1 — 2026-04-17
+
+### 🛠 Fixed
+
+- `passbolt_group` now sends explicit regular-member role data when adding users to existing groups.
+- `passbolt_group` now returns a clear error if Passbolt accepts a membership update but does not apply it, for example when the authenticated API user is not a group manager.
+- Added acceptance coverage for adding a regular member to an existing group that already has a shared password.
+- Bumped the Go toolchain to `1.26.2` and pinned GitHub Actions to the same version.
+- Updated vulnerable transitive dependencies, including `google.golang.org/grpc` to `v1.79.3` and `github.com/cloudflare/circl` to `v1.6.3`.
+- Updated GitHub Actions workflows to Node 24-compatible action majors and opted workflows into `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` for the remaining legacy tagging action.
+
 ## v1.5.0 — 2026-04-15
 
 ### ✨ Added

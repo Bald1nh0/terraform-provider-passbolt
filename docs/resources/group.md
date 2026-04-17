@@ -3,12 +3,12 @@
 page_title: "passbolt_group Resource - passbolt"
 subcategory: ""
 description: |-
-  Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
+  Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders. Passbolt requires the authenticated API user to be a group manager when changing memberships on an existing group.
 ---
 
 # passbolt_group (Resource)
 
-Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
+Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders. Passbolt requires the authenticated API user to be a group manager when changing memberships on an existing group.
 
 ## Example Usage
 

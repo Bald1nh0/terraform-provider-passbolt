@@ -20,7 +20,7 @@ Self-hosted open-source team password manager, with folder, sharing and SSM/auto
 ## Requirements
 
 - Terraform 0.13+ (tested with 1.3+)
-- Go 1.19+ (for building the provider)
+- Go 1.26.2+ (for building the provider)
 - Passbolt server 3.0+ (self-hosted, tested on CE/PRO)
 
 ---

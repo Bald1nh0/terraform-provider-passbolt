@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -42,6 +44,26 @@ func TestValidateGroupMembershipConfig(t *testing.T) {
 				t.Fatalf("unexpected validation error: %v", err)
 			}
 		})
+	}
+}
+
+func TestGroupMembershipChangeIncludesRegularMemberRole(t *testing.T) {
+	t.Parallel()
+
+	payload, err := json.Marshal(groupUpdateRequest{
+		GroupChanges: []groupMembershipChange{
+			{
+				UserID:  "member-1",
+				IsAdmin: boolPtr(false),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal group update request: %v", err)
+	}
+
+	if !strings.Contains(string(payload), `"is_admin":false`) {
+		t.Fatalf("expected regular member role in payload, got %s", payload)
 	}
 }
 
