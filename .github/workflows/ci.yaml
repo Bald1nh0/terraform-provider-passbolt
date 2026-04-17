@@ -46,9 +46,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.6.2
-          install-mode: goinstall
-          args: --timeout=5m
+          version: v2.11
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || (echo 'Run `gofmt -w` on these files:' && gofmt -l . && exit 1)
