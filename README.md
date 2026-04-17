@@ -20,7 +20,7 @@ Self-hosted open-source team password manager, with folder, sharing and SSM/auto
 ## Requirements
 
 - Terraform 0.13+ (tested with 1.3+)
-- Go 1.19+ (for building the provider)
+- Go 1.26.2+ (for building the provider)
 - Passbolt server 3.0+ (self-hosted, tested on CE/PRO)
 
 ---
@@ -211,6 +211,8 @@ resource "passbolt_group" "example" {
 
 Passbolt requires at least one group manager. Regular members can be managed with `members`, and a user must not be present in both `managers` and `members`.
 
+Group memberships require existing active Passbolt users. A user created by `passbolt_user` may not be available for `passbolt_group` membership in the same Terraform apply; create and activate the user first, then reference it from `passbolt_group` in a later apply.
+
 You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt.
 
 ---
@@ -275,6 +277,7 @@ output "all_folder_paths" {
   - `PASSBOLT_PASSPHRASE`
   - `PASSBOLT_MANAGER_ID`
   - `PASSBOLT_TEST_USER_EMAIL`
+  - `PASSBOLT_TEST_EMAIL_DOMAIN` (optional; defaults to `example.com` for generated acceptance-test users)
   - `PASSBOLT_MEMBER_ID` (optional; must be different from `PASSBOLT_MANAGER_ID`)
 
 ---

@@ -11,6 +11,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -38,7 +40,7 @@ type groupModel struct {
 	ID       types.String   `tfsdk:"id"`
 	Name     types.String   `tfsdk:"name"`
 	Managers []types.String `tfsdk:"managers"`
-	Members  []types.String `tfsdk:"members"`
+	Members  types.List     `tfsdk:"members"`
 }
 
 func (r *groupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -73,7 +75,10 @@ func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest
 func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Creates and manages Passbolt groups. Groups can be assigned managers and used to share " +
-			"resources like passwords or folders.",
+			"resources like passwords or folders. Passbolt requires the authenticated API user to be a group " +
+			"manager when changing memberships on an existing group. Group memberships also require existing " +
+			"active Passbolt users; users created by passbolt_user may need to be activated before they can be " +
+			"referenced from passbolt_group in a later apply.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -86,7 +91,7 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"managers": schema.ListAttribute{
 				ElementType: types.StringType,
 				Required:    true,
-				Description: "List of user IDs to assign as group managers.",
+				Description: "List of user IDs to assign as group managers. Users must already exist and be active in Passbolt.",
 				Validators: []validator.List{
 					listvalidator.SizeAtLeast(1),
 					listvalidator.NoNullValues(),
@@ -97,7 +102,9 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"members": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
-				Description: "List of user IDs to assign as regular group members.",
+				Computed:    true,
+				Description: "List of user IDs to assign as regular group members. " +
+					"Users must already exist and be active in Passbolt.",
 				Validators: []validator.List{
 					listvalidator.NoNullValues(),
 					listvalidator.UniqueValues(),
@@ -115,13 +122,18 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	if err := validateGroupMembershipConfig(plan.Managers, plan.Members); err != nil {
+	members := listStringValues(ctx, plan.Members, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if err := validateGroupMembershipConfig(plan.Managers, members); err != nil {
 		resp.Diagnostics.AddError("Invalid group membership", err.Error())
 
 		return
 	}
 
-	ops := buildCreateGroupMembershipOps(plan.Managers, plan.Members)
+	ops := buildCreateGroupMembershipOps(plan.Managers, members)
 
 	groupID, err := helper.CreateGroup(ctx, r.client.Client, plan.Name.ValueString(), ops)
 	if err != nil {
@@ -131,6 +143,7 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 
 	plan.ID = types.StringValue(groupID)
+	plan.Members = listStringValue(members)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -149,11 +162,9 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	}
 
 	state.Name = types.StringValue(name)
-	managerIDs, memberIDs := splitGroupMemberships(memberships, state.Members != nil)
+	managerIDs, memberIDs := splitGroupMemberships(memberships, true)
 	state.Managers = managerIDs
-	if state.Members != nil {
-		state.Members = memberIDs
-	}
+	state.Members = listStringValue(memberIDs)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -161,34 +172,37 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan groupModel
 	var state groupModel
+	var configMembers types.List
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("members"), &configMembers)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := validateGroupMembershipConfig(plan.Managers, plan.Members); err != nil {
+	planMembers := resolveGroupMembersForUpdate(ctx, configMembers, plan.Members, state.Members, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if err := validateGroupMembershipConfig(plan.Managers, planMembers); err != nil {
 		resp.Diagnostics.AddError("Invalid group membership", err.Error())
 
 		return
 	}
 
-	stateManagers := state.Managers
-	stateMembers := state.Members
-	if shouldManageRegularMembers(plan.Members, state.Members) {
-		_, memberships, err := helper.GetGroup(ctx, r.client.Client, state.ID.ValueString())
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading group memberships", err.Error())
+	_, memberships, err := helper.GetGroup(ctx, r.client.Client, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading group memberships", err.Error())
 
-			return
-		}
-		stateManagers, stateMembers = splitGroupMemberships(memberships, true)
+		return
 	}
+	stateManagers, stateMembers := splitGroupMemberships(memberships, true)
 
-	ops := buildGroupMembershipOps(plan.Managers, plan.Members, stateManagers, stateMembers)
+	ops := buildGroupMembershipOps(plan.Managers, planMembers, stateManagers, stateMembers)
 
-	err := helper.UpdateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
+	err = updateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating group", err.Error())
 
@@ -196,7 +210,42 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 
 	plan.ID = state.ID
+	plan.Members = listStringValue(planMembers)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func listStringValues(ctx context.Context, list types.List, diags *diag.Diagnostics) []types.String {
+	if list.IsNull() || list.IsUnknown() {
+		return nil
+	}
+
+	var values []types.String
+	diags.Append(list.ElementsAs(ctx, &values, false)...)
+
+	return values
+}
+
+func resolveGroupMembersForUpdate(
+	ctx context.Context,
+	configMembers types.List,
+	planMembers types.List,
+	stateMembers types.List,
+	diags *diag.Diagnostics,
+) []types.String {
+	if configMembers.IsNull() || configMembers.IsUnknown() || planMembers.IsUnknown() {
+		return listStringValues(ctx, stateMembers, diags)
+	}
+
+	return listStringValues(ctx, planMembers, diags)
+}
+
+func listStringValue(values []types.String) types.List {
+	elements := make([]attr.Value, 0, len(values))
+	for _, value := range values {
+		elements = append(elements, value)
+	}
+
+	return types.ListValueMust(types.StringType, elements)
 }
 
 func splitGroupMemberships(
@@ -215,10 +264,6 @@ func splitGroupMemberships(
 	}
 
 	return managerIDs, memberIDs
-}
-
-func shouldManageRegularMembers(planMembers, stateMembers []types.String) bool {
-	return planMembers != nil || stateMembers != nil
 }
 
 func validateGroupMembershipConfig(managers, members []types.String) error {

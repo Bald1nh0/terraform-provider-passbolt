@@ -68,8 +68,10 @@ func (r *userResource) Metadata(_ context.Context, req resource.MetadataRequest,
 func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Creates and manages a Passbolt user. Users can be assigned roles (`admin` or `user`) " +
-			"and added to groups. " +
-			"This resource is useful for automation of onboarding, role enforcement, and group membership.",
+			"and added to groups. Users created by this resource may not be immediately available for " +
+			"passbolt_group memberships; activate them in Passbolt before referencing them from passbolt_group " +
+			"in a later apply. This resource is useful for automation of onboarding, role enforcement, and " +
+			"group membership.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,

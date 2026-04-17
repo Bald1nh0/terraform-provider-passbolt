@@ -15,15 +15,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Send Telegram Message
+        env:
+          GITHUB_REF_NAME_SAFE: ${{ github.ref_name }}
+          GITHUB_ACTOR_SAFE: ${{ github.actor }}
+          HEAD_COMMIT_URL_SAFE: ${{ github.event.head_commit.url }}
+          HEAD_COMMIT_MESSAGE_SAFE: ${{ github.event.head_commit.message }}
+          HEAD_COMMIT_TIMESTAMP_SAFE: ${{ github.event.head_commit.timestamp }}
         run: |
           MSG=$(cat <<EOF
-          🚀 New push to *${{ github.ref_name }}* by [${{ github.actor }}](https://github.com/${{ github.actor }})
-          [View Commit »](${{ github.event.head_commit.url }})
-          📝 *Commit Message:* ${{ github.event.head_commit.message }}
-          📅 *Date:* ${{ github.event.head_commit.timestamp }}
+          🚀 New push to *${GITHUB_REF_NAME_SAFE}* by [${GITHUB_ACTOR_SAFE}](https://github.com/${GITHUB_ACTOR_SAFE})
+          [View Commit »](${HEAD_COMMIT_URL_SAFE})
+          📝 *Commit Message:* ${HEAD_COMMIT_MESSAGE_SAFE}
+          📅 *Date:* ${HEAD_COMMIT_TIMESTAMP_SAFE}
           EOF
           )
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
@@ -32,16 +38,15 @@ jobs:
             -d parse_mode="Markdown"
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.2'
           cache: false
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.1
-          args: --timeout 5m
+          version: v2.11
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || (echo 'Run `gofmt -w` on these files:' && gofmt -l . && exit 1)
@@ -59,6 +64,7 @@ jobs:
           PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
           PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
           PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
+          PASSBOLT_TEST_EMAIL_DOMAIN: ${{ vars.PASSBOLT_TEST_EMAIL_DOMAIN != '' && vars.PASSBOLT_TEST_EMAIL_DOMAIN || secrets.PASSBOLT_TEST_EMAIL_DOMAIN }}
         run: |
           missing=0
           for name in PASSBOLT_BASE_URL PASSBOLT_PRIVATE_KEY PASSBOLT_PASSPHRASE PASSBOLT_MANAGER_ID PASSBOLT_TEST_USER_EMAIL; do
@@ -79,10 +85,13 @@ jobs:
           PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
           PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
           PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
+          PASSBOLT_TEST_EMAIL_DOMAIN: ${{ vars.PASSBOLT_TEST_EMAIL_DOMAIN != '' && vars.PASSBOLT_TEST_EMAIL_DOMAIN || secrets.PASSBOLT_TEST_EMAIL_DOMAIN }}
         run: go test ./... -count=1 -v
 
       - name: Preview version bump (dry-run)
         id: tag_version
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

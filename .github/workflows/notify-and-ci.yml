@@ -12,14 +12,20 @@ jobs:
     runs-on: [self-hosted]
     steps:
       - name: Notify Telegram
+        env:
+          GITHUB_EVENT_NAME_SAFE: ${{ github.event_name }}
+          ISSUE_TITLE_SAFE: ${{ github.event.issue.title }}
+          ISSUE_URL_SAFE: ${{ github.event.issue.html_url }}
+          PR_TITLE_SAFE: ${{ github.event.pull_request.title }}
+          PR_URL_SAFE: ${{ github.event.pull_request.html_url }}
         run: |
-          if [[ "${{ github.event_name }}" == "issues" ]]; then
-            TITLE="${{ github.event.issue.title }}"
-            URL="${{ github.event.issue.html_url }}"
+          if [[ "${GITHUB_EVENT_NAME_SAFE}" == "issues" ]]; then
+            TITLE="${ISSUE_TITLE_SAFE}"
+            URL="${ISSUE_URL_SAFE}"
             MSG="🛎️ New Issue: [${TITLE}](${URL})"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            TITLE="${{ github.event.pull_request.title }}"
-            URL="${{ github.event.pull_request.html_url }}"
+          elif [[ "${GITHUB_EVENT_NAME_SAFE}" == "pull_request" ]]; then
+            TITLE="${PR_TITLE_SAFE}"
+            URL="${PR_URL_SAFE}"
             MSG="📦 New PR: [${TITLE}](${URL})"
           fi
 
@@ -33,19 +39,18 @@ jobs:
     runs-on: [self-hosted]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.26.2'
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.1
-          args: --timeout 5m
+          version: v2.11
 
       - name: Run tests
         env:
@@ -55,6 +60,7 @@ jobs:
           PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE != '' && secrets.PASSBOLT_PASSPHRASE || vars.PASSBOLT_PASSPHRASE }}
           PASSBOLT_MANAGER_ID: ${{ vars.PASSBOLT_MANAGER_ID != '' && vars.PASSBOLT_MANAGER_ID || secrets.PASSBOLT_MANAGER_ID }}
           PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
+          PASSBOLT_TEST_EMAIL_DOMAIN: ${{ vars.PASSBOLT_TEST_EMAIL_DOMAIN != '' && vars.PASSBOLT_TEST_EMAIL_DOMAIN || secrets.PASSBOLT_TEST_EMAIL_DOMAIN }}
         run: |
           go test ./... -v
 
@@ -64,9 +70,12 @@ jobs:
     runs-on: [self-hosted]
     steps:
       - name: Notify Telegram Success
+        env:
+          PR_TITLE_SAFE: ${{ github.event.pull_request.title }}
+          PR_URL_SAFE: ${{ github.event.pull_request.html_url }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          URL="${{ github.event.pull_request.html_url }}"
+          TITLE="${PR_TITLE_SAFE}"
+          URL="${PR_URL_SAFE}"
           MSG="✅ CI Passed for PR: [${TITLE}](${URL})"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \

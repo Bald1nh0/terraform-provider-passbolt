@@ -3,12 +3,12 @@
 page_title: "passbolt_user Resource - passbolt"
 subcategory: ""
 description: |-
-  Creates and manages a Passbolt user. Users can be assigned roles (admin or user) and added to groups. This resource is useful for automation of onboarding, role enforcement, and group membership.
+  Creates and manages a Passbolt user. Users can be assigned roles (admin or user) and added to groups. Users created by this resource may not be immediately available for passbolt_group memberships; activate them in Passbolt before referencing them from passbolt_group in a later apply. This resource is useful for automation of onboarding, role enforcement, and group membership.
 ---
 
 # passbolt_user (Resource)
 
-Creates and manages a Passbolt user. Users can be assigned roles (`admin` or `user`) and added to groups. This resource is useful for automation of onboarding, role enforcement, and group membership.
+Creates and manages a Passbolt user. Users can be assigned roles (`admin` or `user`) and added to groups. Users created by this resource may not be immediately available for passbolt_group memberships; activate them in Passbolt before referencing them from passbolt_group in a later apply. This resource is useful for automation of onboarding, role enforcement, and group membership.
 
 ## Example Usage
 

@@ -41,7 +41,7 @@ type folderPermissionModel struct {
 	Permission types.String `tfsdk:"permission"` // "read", "update", "delete", "owner"
 }
 
-// Provide client
+// Configure configures the folder permission resource.
 func (r *folderPermissionResource) Configure(
 	_ context.Context,
 	req resource.ConfigureRequest,

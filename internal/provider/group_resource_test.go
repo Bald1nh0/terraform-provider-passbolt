@@ -2,6 +2,7 @@ package provider_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -63,6 +64,35 @@ func TestAccPassboltGroup_withMembers(t *testing.T) {
 	})
 }
 
+func TestAccPassboltGroup_addMemberToSharedGroup(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := testAccCurrentUserID(t, baseURL, privateKey, passphrase)
+	memberID := testAccGroupMemberID(t, baseURL, privateKey, passphrase, managerID)
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group-shared", suffix)
+	passwordName := testAccName("test-password-shared", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			testStepCreateSharedGroupPassword(baseURL, privateKey, passphrase, managerID, groupName, passwordName),
+			testStepAddMemberToSharedGroup(baseURL, privateKey, passphrase, managerID, memberID, groupName, passwordName),
+			testStepNoDriftSharedGroupMember(baseURL, privateKey, passphrase, managerID, memberID, groupName, passwordName),
+		},
+	})
+}
+
 func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, managerID string) string {
 	t.Helper()
 
@@ -108,6 +138,34 @@ func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, manager
 	}
 
 	return memberID
+}
+
+func testAccCurrentUserID(t *testing.T, baseURL, privateKey, passphrase string) string {
+	t.Helper()
+
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		t.Fatalf("failed to create Passbolt API client: %v", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		t.Fatalf("failed to log in to Passbolt API: %v", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	msg, err := client.DoCustomRequest(ctx, "GET", "/users/me.json", "v2", nil, nil)
+	if err != nil {
+		t.Fatalf("failed to get current Passbolt user: %v", err)
+	}
+
+	var user api.User
+	if err := json.Unmarshal(msg.Body, &user); err != nil {
+		t.Fatalf("failed to decode current Passbolt user: %v", err)
+	}
+
+	return user.ID
 }
 
 func testStepCreateGroup(baseURL, privateKey, passphrase, managerID, groupName string) resource.TestStep {
@@ -194,6 +252,81 @@ func testStepUpdateGroupWithMembers(
 	}
 }
 
+func testStepCreateSharedGroupPassword(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	groupName,
+	passwordName string,
+) resource.TestStep {
+	return resource.TestStep{
+		Config: testGroupWithSharedPasswordConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			managerID,
+			"",
+			groupName,
+			passwordName,
+		),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+			resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "members.#", "0"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "name", passwordName),
+		),
+	}
+}
+
+func testStepAddMemberToSharedGroup(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	memberID,
+	groupName,
+	passwordName string,
+) resource.TestStep {
+	return resource.TestStep{
+		Config: testGroupWithSharedPasswordConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			managerID,
+			memberID,
+			groupName,
+			passwordName,
+		),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+			resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "members.#", "1"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "name", passwordName),
+		),
+	}
+}
+
+func testStepNoDriftSharedGroupMember(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	memberID,
+	groupName,
+	passwordName string,
+) resource.TestStep {
+	return testStepAddMemberToSharedGroup(
+		baseURL,
+		privateKey,
+		passphrase,
+		managerID,
+		memberID,
+		groupName,
+		passwordName,
+	)
+}
+
 func testGroupConfig(baseURL, privateKey, passphrase, managerID, groupName string) string {
 	return fmt.Sprintf(`
 provider "passbolt" {
@@ -227,4 +360,43 @@ resource "passbolt_group" "test" {
   members  = ["%s"]
 }
 `, baseURL, privateKey, passphrase, groupName, managerID, memberID)
+}
+
+func testGroupWithSharedPasswordConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	memberID,
+	groupName,
+	passwordName string,
+) string {
+	members := ""
+	if memberID != "" {
+		members = fmt.Sprintf(`
+  members  = ["%s"]`, memberID)
+	}
+
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_group" "test" {
+  name     = "%s"
+  managers = ["%s"]%s
+}
+
+resource "passbolt_password" "shared" {
+  name         = "%s"
+  username     = "shared-user"
+  uri          = "https://shared-group.example.com"
+  password     = "shared-secret"
+  share_groups = [passbolt_group.test.name]
+}
+`, baseURL, privateKey, passphrase, groupName, managerID, members, passwordName)
 }

@@ -3,12 +3,12 @@
 page_title: "passbolt_group Resource - passbolt"
 subcategory: ""
 description: |-
-  Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
+  Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders. Passbolt requires the authenticated API user to be a group manager when changing memberships on an existing group. Group memberships also require existing active Passbolt users; users created by passbolt_user may need to be activated before they can be referenced from passbolt_group in a later apply.
 ---
 
 # passbolt_group (Resource)
 
-Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders.
+Creates and manages Passbolt groups. Groups can be assigned managers and used to share resources like passwords or folders. Passbolt requires the authenticated API user to be a group manager when changing memberships on an existing group. Group memberships also require existing active Passbolt users; users created by passbolt_user may need to be activated before they can be referenced from passbolt_group in a later apply.
 
 ## Example Usage
 
@@ -43,12 +43,12 @@ resource "passbolt_group" "example" {
 
 ### Required
 
-- `managers` (List of String) List of user IDs to assign as group managers.
+- `managers` (List of String) List of user IDs to assign as group managers. Users must already exist and be active in Passbolt.
 - `name` (String) Group name.
 
 ### Optional
 
-- `members` (List of String) List of user IDs to assign as regular group members.
+- `members` (List of String) List of user IDs to assign as regular group members. Users must already exist and be active in Passbolt.
 
 ### Read-Only
 

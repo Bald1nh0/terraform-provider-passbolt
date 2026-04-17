@@ -39,5 +39,31 @@ func testAccName(prefix, suffix string) string {
 }
 
 func testAccEmail(prefix, suffix string) string {
-	return fmt.Sprintf("test-%s-%s@bald1nh0.net", prefix, suffix)
+	domain := strings.TrimSpace(os.Getenv("PASSBOLT_TEST_EMAIL_DOMAIN"))
+	domain = strings.TrimPrefix(domain, "@")
+	if domain == "" {
+		domain = "example.com"
+	}
+
+	return fmt.Sprintf("test-%s-%s@%s", prefix, suffix, domain)
+}
+
+func TestTestAccEmailUsesReservedDomainByDefault(t *testing.T) {
+	t.Setenv("PASSBOLT_TEST_EMAIL_DOMAIN", "")
+
+	got := testAccEmail("acc.user", "123")
+	want := "test-acc.user-123@example.com"
+	if got != want {
+		t.Fatalf("expected default acceptance email %q, got %q", want, got)
+	}
+}
+
+func TestTestAccEmailSupportsDomainOverride(t *testing.T) {
+	t.Setenv("PASSBOLT_TEST_EMAIL_DOMAIN", "@example.test")
+
+	got := testAccEmail("acc.user", "123")
+	want := "test-acc.user-123@example.test"
+	if got != want {
+		t.Fatalf("expected overridden acceptance email %q, got %q", want, got)
+	}
 }
