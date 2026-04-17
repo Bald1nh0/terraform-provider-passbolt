@@ -38,6 +38,14 @@ func TestActiveUserByUsername(t *testing.T) {
 			username: "alexey@example.com",
 			wantErr:  "user alexey@example.com exists but is not active in Passbolt",
 		},
+		"rejects deleted exact match": {
+			users: []api.User{
+				{ID: "wanted", Username: "alexey@example.com", Active: true, Deleted: true},
+				{ID: "other", Username: "alexey+other@example.com", Active: true},
+			},
+			username: "alexey@example.com",
+			wantErr:  "user alexey@example.com exists in Passbolt but is deleted",
+		},
 		"rejects missing exact match": {
 			users: []api.User{
 				{ID: "other", Username: "alexey+other@example.com", Active: true},

@@ -62,11 +62,12 @@ func (d *userDataSource) Metadata(_ context.Context,
 
 func (d *userDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Looks up an existing active Passbolt user by exact username (email address).",
+		Description: "Looks up an existing active, non-deleted Passbolt user by exact username (email address).",
 		Attributes: map[string]schema.Attribute{
 			"username": schema.StringAttribute{
-				Required:    true,
-				Description: "Exact username (email address) to look up. The user must already be active in Passbolt.",
+				Required: true,
+				Description: "Exact username (email address) to look up. " +
+					"The user must already be active and not deleted in Passbolt.",
 			},
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -128,6 +129,10 @@ func activeUserByUsername(users []api.User, username string) (*api.User, error) 
 	for _, user := range users {
 		if !strings.EqualFold(user.Username, username) {
 			continue
+		}
+
+		if user.Deleted {
+			return nil, fmt.Errorf("user %s exists in Passbolt but is deleted", username)
 		}
 
 		if !user.Active {
