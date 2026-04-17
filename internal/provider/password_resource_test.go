@@ -164,12 +164,12 @@ func testPasswordWithShareGroupsConfig(
 	var groupResources strings.Builder
 	groupNames := ""
 	for i, g := range groups {
-		groupResources.WriteString(fmt.Sprintf(`
+		_, _ = fmt.Fprintf(&groupResources, `
 resource "passbolt_group" "g%d" {
   name     = "%s"
   managers = ["%s"]
 }
-`, i, g, managerID))
+`, i, g, managerID)
 		groupNames += fmt.Sprintf(`passbolt_group.g%d.name,`, i)
 	}
 	groupNames = groupNames[:len(groupNames)-1] // trim last comma
