@@ -220,7 +220,7 @@ func normalizeFolderReferenceValue(rawValue string) (string, error) {
 }
 
 func hasRelativePathSegments(value string) bool {
-	for _, segment := range strings.Split(value, "/") {
+	for segment := range strings.SplitSeq(value, "/") {
 		if segment == "." || segment == ".." {
 			return true
 		}

@@ -64,6 +64,41 @@ func TestActiveUserByUsername(t *testing.T) {
 	}
 }
 
+func TestActiveUserByUsernamePrefersUsableExactMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		users    []api.User
+		username string
+		wantID   string
+	}{
+		"returns later active exact match after deleted match": {
+			users: []api.User{
+				{ID: "deleted", Username: "alexey@example.com", Active: true, Deleted: true},
+				{ID: "wanted", Username: "alexey@example.com", Active: true},
+			},
+			username: "alexey@example.com",
+			wantID:   "wanted",
+		},
+		"returns later active exact match after inactive match": {
+			users: []api.User{
+				{ID: "inactive", Username: "alexey@example.com", Active: false},
+				{ID: "wanted", Username: "alexey@example.com", Active: true},
+			},
+			username: "alexey@example.com",
+			wantID:   "wanted",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assertActiveUserByUsername(t, test.users, test.username, test.wantID, "")
+		})
+	}
+}
+
 func assertActiveUserByUsername(
 	t *testing.T,
 	users []api.User,

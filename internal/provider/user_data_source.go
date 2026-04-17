@@ -126,20 +126,35 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 }
 
 func activeUserByUsername(users []api.User, username string) (*api.User, error) {
+	var sawDeleted bool
+	var sawInactive bool
+
 	for _, user := range users {
 		if !strings.EqualFold(user.Username, username) {
 			continue
 		}
 
 		if user.Deleted {
-			return nil, fmt.Errorf("user %s exists in Passbolt but is deleted", username)
+			sawDeleted = true
+
+			continue
 		}
 
 		if !user.Active {
-			return nil, fmt.Errorf("user %s exists but is not active in Passbolt", username)
+			sawInactive = true
+
+			continue
 		}
 
 		return &user, nil
+	}
+
+	if sawDeleted {
+		return nil, fmt.Errorf("user %s exists in Passbolt but is deleted", username)
+	}
+
+	if sawInactive {
+		return nil, fmt.Errorf("user %s exists but is not active in Passbolt", username)
 	}
 
 	return nil, fmt.Errorf("could not find active Passbolt user with username: %s", username)

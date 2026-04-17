@@ -3,6 +3,7 @@ package provider_test
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -160,15 +161,15 @@ func testPasswordWithShareGroupsConfig(
 	password string,
 	groups []string,
 ) string {
-	groupResources := ""
+	var groupResources strings.Builder
 	groupNames := ""
 	for i, g := range groups {
-		groupResources += fmt.Sprintf(`
+		groupResources.WriteString(fmt.Sprintf(`
 resource "passbolt_group" "g%d" {
   name     = "%s"
   managers = ["%s"]
 }
-`, i, g, managerID)
+`, i, g, managerID))
 		groupNames += fmt.Sprintf(`passbolt_group.g%d.name,`, i)
 	}
 	groupNames = groupNames[:len(groupNames)-1] // trim last comma
@@ -191,7 +192,7 @@ resource "passbolt_password" "shared" {
   password      = "%s"
   share_groups  = [%s]
 }
-`, baseURL, privateKey, passphrase, groupResources, name, username, uri, password, groupNames)
+`, baseURL, privateKey, passphrase, groupResources.String(), name, username, uri, password, groupNames)
 }
 
 func testPasswordWithShareConfig(
