@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"terraform-provider-passbolt/tools"
 
@@ -61,10 +62,11 @@ func (d *userDataSource) Metadata(_ context.Context,
 
 func (d *userDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Looks up an existing active Passbolt user by exact username (email address).",
 		Attributes: map[string]schema.Attribute{
 			"username": schema.StringAttribute{
 				Required:    true,
-				Description: "Username (email address) to look up.",
+				Description: "Exact username (email address) to look up. The user must already be active in Passbolt.",
 			},
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -96,7 +98,7 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 	users, err := d.client.Client.GetUsers(ctx, &api.GetUsersOptions{
 		FilterSearch: config.Username.ValueString(),
 	})
-	if err != nil || len(users) == 0 {
+	if err != nil {
 		resp.Diagnostics.AddError("User not found",
 			fmt.Sprintf("Could not find user with username: %s",
 				config.Username.ValueString()))
@@ -104,15 +106,60 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	user := users[0]
+	user, err := activeUserByUsername(users, config.Username.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("User not found", err.Error())
+
+		return
+	}
 
 	data := userDataSourceModel{
 		ID:        types.StringValue(user.ID),
 		Username:  types.StringValue(user.Username),
-		Role:      types.StringValue(user.Role.Name),
-		FirstName: types.StringValue(user.Profile.FirstName),
-		LastName:  types.StringValue(user.Profile.LastName),
+		Role:      types.StringValue(userRoleName(user)),
+		FirstName: types.StringValue(userFirstName(user)),
+		LastName:  types.StringValue(userLastName(user)),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func activeUserByUsername(users []api.User, username string) (*api.User, error) {
+	for _, user := range users {
+		if !strings.EqualFold(user.Username, username) {
+			continue
+		}
+
+		if !user.Active {
+			return nil, fmt.Errorf("user %s exists but is not active in Passbolt", username)
+		}
+
+		return &user, nil
+	}
+
+	return nil, fmt.Errorf("could not find active Passbolt user with username: %s", username)
+}
+
+func userRoleName(user *api.User) string {
+	if user.Role == nil {
+		return ""
+	}
+
+	return user.Role.Name
+}
+
+func userFirstName(user *api.User) string {
+	if user.Profile == nil {
+		return ""
+	}
+
+	return user.Profile.FirstName
+}
+
+func userLastName(user *api.User) string {
+	if user.Profile == nil {
+		return ""
+	}
+
+	return user.Profile.LastName
 }

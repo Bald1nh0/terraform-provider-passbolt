@@ -3,12 +3,12 @@
 page_title: "passbolt_user Data Source - passbolt"
 subcategory: ""
 description: |-
-  
+  Looks up an existing active Passbolt user by exact username (email address).
 ---
 
 # passbolt_user (Data Source)
 
-
+Looks up an existing active Passbolt user by exact username (email address).
 
 ## Example Usage
 
@@ -47,7 +47,7 @@ resource "passbolt_folder_permission" "dev_access" {
 
 ### Required
 
-- `username` (String) Username (email address) to look up.
+- `username` (String) Exact username (email address) to look up. The user must already be active in Passbolt.
 
 ### Read-Only
 
