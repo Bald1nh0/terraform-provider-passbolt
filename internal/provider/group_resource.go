@@ -16,8 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -78,7 +76,9 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		Description: "Creates and manages Passbolt groups. Groups can be assigned managers and used to share " +
 			"resources like passwords or folders. Passbolt requires the authenticated API user to be a group " +
-			"manager when changing memberships on an existing group.",
+			"manager when changing memberships on an existing group. Group memberships also require existing " +
+			"active Passbolt users; users created by passbolt_user may need to be activated before they can be " +
+			"referenced from passbolt_group in a later apply.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -91,7 +91,7 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"managers": schema.ListAttribute{
 				ElementType: types.StringType,
 				Required:    true,
-				Description: "List of user IDs to assign as group managers.",
+				Description: "List of user IDs to assign as group managers. Users must already exist and be active in Passbolt.",
 				Validators: []validator.List{
 					listvalidator.SizeAtLeast(1),
 					listvalidator.NoNullValues(),
@@ -103,14 +103,12 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				ElementType: types.StringType,
 				Optional:    true,
 				Computed:    true,
-				Description: "List of user IDs to assign as regular group members.",
+				Description: "List of user IDs to assign as regular group members. " +
+					"Users must already exist and be active in Passbolt.",
 				Validators: []validator.List{
 					listvalidator.NoNullValues(),
 					listvalidator.UniqueValues(),
 					listvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
-				},
-				PlanModifiers: []planmodifier.List{
-					listplanmodifier.UseStateForUnknown(),
 				},
 			},
 		},

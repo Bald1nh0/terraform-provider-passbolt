@@ -1,10 +1,13 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/passbolt/go-passbolt/helper"
 )
@@ -64,6 +67,27 @@ func TestGroupMembershipChangeIncludesRegularMemberRole(t *testing.T) {
 
 	if !strings.Contains(string(payload), `"is_admin":false`) {
 		t.Fatalf("expected regular member role in payload, got %s", payload)
+	}
+}
+
+func TestGroupMembersAttributeDoesNotUseStateForUnknown(t *testing.T) {
+	t.Parallel()
+
+	var resp resource.SchemaResponse
+	NewGroupResource().Schema(context.Background(), resource.SchemaRequest{}, &resp)
+
+	attr, ok := resp.Schema.Attributes["members"]
+	if !ok {
+		t.Fatal("expected members attribute in group schema")
+	}
+
+	listAttr, ok := attr.(schema.ListAttribute)
+	if !ok {
+		t.Fatalf("expected members to be a list attribute, got %T", attr)
+	}
+
+	if len(listAttr.PlanModifiers) != 0 {
+		t.Fatalf("expected members to have no plan modifiers, got %d", len(listAttr.PlanModifiers))
 	}
 }
 

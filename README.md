@@ -211,6 +211,8 @@ resource "passbolt_group" "example" {
 
 Passbolt requires at least one group manager. Regular members can be managed with `members`, and a user must not be present in both `managers` and `members`.
 
+Group memberships require existing active Passbolt users. A user created by `passbolt_user` may not be available for `passbolt_group` membership in the same Terraform apply; create and activate the user first, then reference it from `passbolt_group` in a later apply.
+
 You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt.
 
 ---
