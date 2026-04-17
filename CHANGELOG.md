@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.5.2 — 2026-04-17
+
+### 🛠 Fixed
+
+- `data.passbolt_user` now resolves only exact, active, non-deleted Passbolt users.
+- Improved `passbolt_user` data source behavior for deleted or stale Passbolt user records that could previously be returned by search results.
+
 ## v1.5.1 — 2026-04-17
 
 ### 🛠 Fixed

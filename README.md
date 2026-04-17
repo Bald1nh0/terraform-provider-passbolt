@@ -229,6 +229,8 @@ output "user_id" {
 }
 ```
 
+- Looks up users by **exact** email match
+- Returns only **active, non-deleted** Passbolt users
 - Returns `user id`, `role`, `first_name`, and `last_name`
 - Can be used to assign managers in `passbolt_group`, or resolve dependencies
 

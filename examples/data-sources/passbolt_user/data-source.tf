@@ -4,7 +4,7 @@ provider "passbolt" {
   passphrase  = "mysecurepassphrase"
 }
 
-# 🔍 Lookup an existing user by email (must be active in Passbolt)
+# 🔍 Lookup an existing user by exact email (must be active and not deleted in Passbolt)
 data "passbolt_user" "lead" {
   username = "lead.dev@example.com"
 }

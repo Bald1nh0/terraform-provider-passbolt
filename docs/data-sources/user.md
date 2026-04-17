@@ -3,12 +3,12 @@
 page_title: "passbolt_user Data Source - passbolt"
 subcategory: ""
 description: |-
-  
+  Looks up an existing active, non-deleted Passbolt user by exact username (email address).
 ---
 
 # passbolt_user (Data Source)
 
-
+Looks up an existing active, non-deleted Passbolt user by exact username (email address).
 
 ## Example Usage
 
@@ -19,7 +19,7 @@ provider "passbolt" {
   passphrase  = "mysecurepassphrase"
 }
 
-# 🔍 Lookup an existing user by email (must be active in Passbolt)
+# 🔍 Lookup an existing user by exact email (must be active and not deleted in Passbolt)
 data "passbolt_user" "lead" {
   username = "lead.dev@example.com"
 }
@@ -47,7 +47,7 @@ resource "passbolt_folder_permission" "dev_access" {
 
 ### Required
 
-- `username` (String) Username (email address) to look up.
+- `username` (String) Exact username (email address) to look up. The user must already be active and not deleted in Passbolt.
 
 ### Read-Only
 
