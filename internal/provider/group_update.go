@@ -172,17 +172,18 @@ func appendMissingGroupSecrets(
 
 	secrets := flattenGroupSecrets(dryRun.DryRun.Secrets)
 	decryptedSecretCache := map[string]string{}
+	currentUserID := client.GetUserID()
 
 	for _, container := range dryRun.DryRun.SecretsNeeded {
 		missingSecret := container.Secret
 		decryptedSecret, ok := decryptedSecretCache[missingSecret.ResourceID]
 		if !ok {
-			secret, err := groupSecretByResourceID(secrets, missingSecret.ResourceID)
-			if err != nil {
-				return fmt.Errorf("get secret from dry-run response: %w", err)
-			}
-
-			decryptedSecret, err = client.DecryptMessage(secret.Data)
+			decryptedSecret, err := decryptedGroupSecretByResourceID(
+				secrets,
+				missingSecret.ResourceID,
+				currentUserID,
+				client.DecryptMessage,
+			)
 			if err != nil {
 				return fmt.Errorf("decrypting secret: %w", err)
 			}
@@ -291,14 +292,60 @@ func groupMembershipByUserID(
 	return nil, fmt.Errorf("cannot find membership for user ID %v", userID)
 }
 
-func groupSecretByResourceID(secrets []api.Secret, resourceID string) (*api.Secret, error) {
-	for _, secret := range secrets {
-		if secret.ResourceID == resourceID {
-			return &secret, nil
+func decryptedGroupSecretByResourceID(
+	secrets []api.Secret,
+	resourceID,
+	currentUserID string,
+	decrypt func(string) (string, error),
+) (string, error) {
+	candidates := groupSecretsByResourceID(secrets, resourceID)
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("cannot find secret for resource ID %v", resourceID)
+	}
+
+	tryDecrypt := func(secret api.Secret) (string, bool) {
+		decryptedSecret, err := decrypt(secret.Data)
+		if err != nil {
+			return "", false
+		}
+
+		return decryptedSecret, true
+	}
+
+	if currentUserID != "" {
+		for _, secret := range candidates {
+			if secret.UserID != currentUserID {
+				continue
+			}
+
+			if decryptedSecret, ok := tryDecrypt(secret); ok {
+				return decryptedSecret, nil
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find secret for resource ID %v", resourceID)
+	for _, secret := range candidates {
+		if secret.UserID == currentUserID {
+			continue
+		}
+
+		if decryptedSecret, ok := tryDecrypt(secret); ok {
+			return decryptedSecret, nil
+		}
+	}
+
+	return "", fmt.Errorf("cannot decrypt secret for resource ID %v", resourceID)
+}
+
+func groupSecretsByResourceID(secrets []api.Secret, resourceID string) []api.Secret {
+	matches := make([]api.Secret, 0)
+	for _, secret := range secrets {
+		if secret.ResourceID == resourceID {
+			matches = append(matches, secret)
+		}
+	}
+
+	return matches
 }
 
 func groupUserPublicKey(userID string, users []api.User) (string, error) {
