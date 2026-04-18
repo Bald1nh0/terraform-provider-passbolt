@@ -10,6 +10,7 @@ Supports Passbolt CE/PRO, self-hosted deployments, AWS SSM-backed secret workflo
 
 - Registry Docs: <https://registry.terraform.io/providers/Bald1nh0/passbolt/latest/docs>
 - Examples: [./examples](./examples)
+- Templates: [./templates](./templates)
 - Changelog: [./CHANGELOG.md](./CHANGELOG.md)
 
 ## Quick start
@@ -348,16 +349,15 @@ This provider uses [terraform-plugin-docs](https://github.com/hashicorp/terrafor
 1. Ensure you have all dependencies (see Go requirements above):
 
     ```sh
-    go get github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs
+    go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest
     ```
 
-2. Add or update examples in `examples/` as needed.
+2. Add or update examples in `examples/` and documentation templates in `templates/` as needed.
 
 3. Run the following command from the project root:
 
     ```sh
-    cd tools
-    go generate ./...
+    make docs
     ```
 
 4. Check the generated Markdown files in the `docs/` directory before commit and push.
@@ -367,4 +367,4 @@ After pushing to the main branch and releasing a new tag, the Terraform Registry
 ---
 
 **Pro-tip:**  
-All schema `Description` and code examples placed in the `examples/` directory will be automatically included in the Markdown docs. Always keep your examples and schema descriptions up to date for accurate public documentation.
+All schema `Description` values, Terraform examples in `examples/`, and custom templates in `templates/` contribute to the generated Registry documentation. Keep all three in sync so the published docs stay accurate.

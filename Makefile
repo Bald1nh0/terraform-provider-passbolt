@@ -1,5 +1,5 @@
 BINARY_NAME=terraform-provider-passbolt
-VERSION=1.5.3
+VERSION=1.5.4
 OS=$(shell uname | tr A-Z a-z)
 ARCH=amd64
 PLUGIN_NAMESPACE=bald1nh0
@@ -8,7 +8,7 @@ GO_BIN=$(shell go env GOPATH)/bin
 GOLANGCI_LINT_VERSION=v2.11.4
 GOLANGCI_LINT=$(GO_BIN)/golangci-lint
 
-.PHONY: all build install lint test docs generate setup clean release
+.PHONY: all build install lint test docs docs-validate generate setup clean release
 
 all: build
 
@@ -30,8 +30,15 @@ test:
 generate:
 	cd tools && go generate ./...
 
-docs: generate
+docs: generate docs-validate
 	@echo "📚 Docs generated in ./docs"
+
+docs-validate:
+	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs validate \
+		--provider-dir . \
+		--provider-name passbolt \
+		--allowed-resource-subcategories "Identity,Secrets,Folders & Permissions" \
+		--allowed-guide-subcategories "Getting Started,Workflows"
 
 setup:
 	@mkdir -p "$(GO_BIN)"

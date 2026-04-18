@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.4 — 2026-04-18
+
+### 🛠 Fixed
+
+- Updated the Terraform Plugin Framework dependency set to current compatible releases.
+
+### 📝 Documentation
+
+- Added `tfplugindocs` templates for provider docs, resource/data source navigation subcategories, and workflow guides.
+- Added documentation validation through `tfplugindocs validate`.
+
 ## v1.5.3 — 2026-04-18
 
 ### 🛠 Fixed

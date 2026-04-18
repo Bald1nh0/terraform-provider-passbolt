@@ -1,0 +1,26 @@
+---
+page_title: "Sync Secrets from AWS SSM"
+subcategory: "Workflows"
+description: |-
+  Load provider credentials and secret values from AWS SSM Parameter Store, then publish them into Passbolt with Terraform.
+---
+
+# Sync Secrets from AWS SSM
+
+AWS SSM Parameter Store is a practical way to keep the Passbolt provider credentials and application secrets out of the repository.
+
+## Load Provider Credentials from SSM
+
+{{ tffile "examples/guides/aws-ssm/provider-auth.tf" }}
+
+## Publish an Application Secret into Passbolt
+
+{{ tffile "examples/guides/aws-ssm/sync-password.tf" }}
+
+-> This pattern works well when a secret is owned outside Passbolt but should be shared with teams through Passbolt folders and groups.
+
+## Operational Notes
+
+- Keep the PGP private key and passphrase in separate secure parameters.
+- Prefer sharing secrets through `share_groups` instead of hardcoding group UUIDs.
+- Use folder names, folder UUIDs, or absolute folder paths for `folder_parent`.
