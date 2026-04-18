@@ -1,21 +1,75 @@
 # terraform-provider-passbolt
 
-A **Terraform provider** for [Passbolt](https://www.passbolt.com):  
-Self-hosted open-source team password manager, with folder, sharing and SSM/automation support.
+Terraform provider for [Passbolt](https://www.passbolt.com). Manage users, groups, folders, passwords, and folder permissions with Terraform.
 
----
+Supports Passbolt CE/PRO, self-hosted deployments, AWS SSM-backed secret workflows, and Terraform-native onboarding/offboarding.
 
-## Features
+[![Terraform Registry](https://img.shields.io/badge/Terraform%20Registry-Bald1nh0%2Fpassbolt-623CE4?logo=terraform)](https://registry.terraform.io/providers/Bald1nh0/passbolt/latest/docs)
+[![Latest Release](https://img.shields.io/github/v/release/Bald1nh0/terraform-provider-passbolt?display_name=tag)](https://github.com/Bald1nh0/terraform-provider-passbolt/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENCE)
 
-- Create, read, and delete folders in Passbolt PRO/CE
-- Create and manage secrets/passwords, including sharing with Passbolt groups
-- Grant and revoke group permission to folders (`passbolt_folder_permission` resource)
-- Integration-ready with AWS SSM, Secrets Manager, and other tools
-- Use with your own Passbolt instance (CE or PRO)
-- Manage user groups via `passbolt_group` (with manager and member assignment)
-- Look up users by email using `data "passbolt_user"`
+- Registry Docs: <https://registry.terraform.io/providers/Bald1nh0/passbolt/latest/docs>
+- Examples: [./examples](./examples)
+- Changelog: [./CHANGELOG.md](./CHANGELOG.md)
 
----
+## Quick start
+
+```hcl
+terraform {
+  required_providers {
+    passbolt = {
+      source  = "Bald1nh0/passbolt"
+      version = "~> 1.5"
+    }
+  }
+}
+
+variable "passbolt_passphrase" {
+  description = "Passphrase for the Passbolt PGP private key."
+  type        = string
+  sensitive   = true
+}
+
+provider "passbolt" {
+  base_url    = "https://passbolt.example.com/"
+  private_key = file("${path.module}/passbolt-private.asc")
+  passphrase  = var.passbolt_passphrase
+}
+```
+
+`base_url`, `private_key`, and `passphrase` can also be supplied through the `PASSBOLT_URL`, `PASSBOLT_KEY`, and `PASSBOLT_PASS` environment variables.
+
+## Why this provider?
+
+- Manage Passbolt users, groups, folders, passwords, and folder permissions with Terraform.
+- Support Passbolt CE and PRO deployments with the same provider.
+- Resolve `folder_parent` by unique folder name, folder UUID, or absolute path such as `/application_A/prod`.
+- Use exact `data.passbolt_user` lookups that return only active, non-deleted users.
+- Import major resources into Terraform state for gradual adoption.
+- Integrate external secrets from AWS SSM Parameter Store or Secrets Manager.
+
+## Supported resources and data sources
+
+### Resources
+
+- [`passbolt_user`](./docs/resources/user.md)
+- [`passbolt_group`](./docs/resources/group.md)
+- [`passbolt_folder`](./docs/resources/folder.md)
+- [`passbolt_password`](./docs/resources/password.md)
+- [`passbolt_folder_permission`](./docs/resources/folder_permission.md)
+
+### Data sources
+
+- [`passbolt_user`](./docs/data-sources/user.md)
+- [`passbolt_group`](./docs/data-sources/group.md)
+- [`passbolt_folders`](./docs/data-sources/folders.md)
+- [`passbolt_password`](./docs/data-sources/password.md)
+
+## Common use cases
+
+- Onboard and offboard Passbolt users, roles, and groups with Terraform.
+- Sync application secrets from AWS SSM Parameter Store into Passbolt.
+- Manage shared folders and group-based access for DevOps or platform teams.
 
 ## Requirements
 
@@ -23,39 +77,21 @@ Self-hosted open-source team password manager, with folder, sharing and SSM/auto
 - Go 1.26.2+ (for building the provider)
 - Passbolt server 3.0+ (self-hosted, tested on CE/PRO)
 
----
+## Local development install
 
-## Installation (local/dev)
+```sh
+make build
+make install
+```
 
-1. **Build the provider**  
-   ```sh
-   go build -o terraform-provider-passbolt_v1.0.0
-   ```
+`make install` uses the `PLUGIN_NAMESPACE`, `VERSION`, `OS`, and `ARCH` values from the [Makefile](./Makefile). Adjust them if you need a custom local namespace or target platform.
 
-2. **Install it into Terraform plugins directory:**  
-   (Change path, binary name and version as needed)
-   ```sh
-   mkdir -p ~/.terraform.d/plugins/<your_namespace>/passbolt/1.0.0/linux_amd64/
-   cp terraform-provider-passbolt_v1.0.0 ~/.terraform.d/plugins/<your_namespace>/passbolt/1.0.0/linux_amd64/
-   chmod +x ~/.terraform.d/plugins/<your_namespace>/passbolt/1.0.0/linux_amd64/terraform-provider-passbolt_v1.0.0
-   ```
+## Provider configuration examples
 
-3. **Configure the provider in your Terraform project:**
-   ```hcl
-   terraform {
-     required_providers {
-       passbolt = {
-         source  = "<your_namespace>/passbolt"
-         version = "1.0.0"
-       }
-     }
-   }
-   ```
+### Basic configuration (local/dev use)
 
----
+Best for quick tests and ephemeral environments.
 
-## Basic provider configuration (for local/dev use)
-Best for quick tests and ephemeral environments
 ```hcl
 provider "passbolt" {
   base_url    = "https://passbolt.example.com/"
@@ -66,7 +102,7 @@ EOT
 }
 ```
 
-## Recommended: Secure provider configuration using AWS SSM Parameter Store
+### Recommended: load provider credentials from AWS SSM Parameter Store
 
 Store your PGP private key in AWS SSM Parameter Store as a SecureString, then load it in Terraform:
 
@@ -262,9 +298,28 @@ output "all_folder_paths" {
 }
 ```
 
+## Data Source: passbolt_password
+
+Fetch a Passbolt secret by UUID and expose its metadata and sensitive password value.
+
+```hcl
+data "passbolt_password" "db_admin" {
+  id = "12345678-90ab-cdef-1234-567890abcdef"
+}
+
+output "db_admin_username" {
+  value = data.passbolt_password.db_admin.username
+}
+
+output "db_admin_password" {
+  sensitive = true
+  value     = data.passbolt_password.db_admin.password
+}
+```
+
 ## Development
 
-- Fork, edit, and build as above.
+- Build locally with `make build` and install with `make install`.
 - Register new resources in `provider.go`.
 - See `internal/provider/*` for implementation examples.
 - PRs (with issue or description please!) are welcome.

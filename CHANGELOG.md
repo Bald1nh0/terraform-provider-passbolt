@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.3 — 2026-04-18
+
+### 🛠 Fixed
+
+- Aligned the provider server address with the published Terraform Registry source (`Bald1nh0/passbolt`).
+
+### 📝 Documentation
+
+- Reworked the README first screen around a registry-ready quick start, supported objects, and common use cases.
+- Updated provider examples and generated documentation to use the current `~> 1.5` provider version.
+
 ## v1.5.2 — 2026-04-17
 
 ### 🛠 Fixed

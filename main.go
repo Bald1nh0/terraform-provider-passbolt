@@ -28,7 +28,7 @@ func main() {
 
 	opts := providerserver.ServeOpts{
 		// Use your registry address:
-		Address: "registry.terraform.io/opaas-cloud/passbolt",
+		Address: "registry.terraform.io/Bald1nh0/passbolt",
 		Debug:   debug,
 	}
 
