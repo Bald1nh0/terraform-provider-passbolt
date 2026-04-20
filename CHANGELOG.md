@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.5 — 2026-04-20
+
+### 🛠 Fixed
+
+- `passbolt_group.managers` and `passbolt_group.members` now use set semantics to avoid perpetual diffs caused by membership ordering returned by Passbolt.
+
 ## v1.5.4 — 2026-04-18
 
 ### 🛠 Fixed

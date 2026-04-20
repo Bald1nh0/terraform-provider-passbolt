@@ -44,12 +44,12 @@ resource "passbolt_group" "example" {
 
 ### Required
 
-- `managers` (List of String) List of user IDs to assign as group managers. Users must already exist and be active in Passbolt.
+- `managers` (Set of String) List of user IDs to assign as group managers. Users must already exist and be active in Passbolt.
 - `name` (String) Group name.
 
 ### Optional
 
-- `members` (List of String) List of user IDs to assign as regular group members. Users must already exist and be active in Passbolt.
+- `members` (Set of String) List of user IDs to assign as regular group members. Users must already exist and be active in Passbolt.
 
 ### Read-Only
 

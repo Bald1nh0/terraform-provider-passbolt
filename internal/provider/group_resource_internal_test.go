@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,24 +72,33 @@ func TestGroupMembershipChangeIncludesRegularMemberRole(t *testing.T) {
 	}
 }
 
-func TestGroupMembersAttributeDoesNotUseStateForUnknown(t *testing.T) {
+func TestGroupMembershipAttributesUseSetSemantics(t *testing.T) {
 	t.Parallel()
 
 	var resp resource.SchemaResponse
 	NewGroupResource().Schema(context.Background(), resource.SchemaRequest{}, &resp)
+
+	managersAttr, ok := resp.Schema.Attributes["managers"]
+	if !ok {
+		t.Fatal("expected managers attribute in group schema")
+	}
+
+	if _, ok := managersAttr.(schema.SetAttribute); !ok {
+		t.Fatalf("expected managers to be a set attribute, got %T", managersAttr)
+	}
 
 	attr, ok := resp.Schema.Attributes["members"]
 	if !ok {
 		t.Fatal("expected members attribute in group schema")
 	}
 
-	listAttr, ok := attr.(schema.ListAttribute)
+	setAttr, ok := attr.(schema.SetAttribute)
 	if !ok {
-		t.Fatalf("expected members to be a list attribute, got %T", attr)
+		t.Fatalf("expected members to be a set attribute, got %T", attr)
 	}
 
-	if len(listAttr.PlanModifiers) != 0 {
-		t.Fatalf("expected members to have no plan modifiers, got %d", len(listAttr.PlanModifiers))
+	if len(setAttr.PlanModifiers) != 0 {
+		t.Fatalf("expected members to have no plan modifiers, got %d", len(setAttr.PlanModifiers))
 	}
 }
 
@@ -96,33 +106,33 @@ func TestResolveGroupMembersForUpdate(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		configMembers types.List
-		planMembers   types.List
-		stateMembers  types.List
+		configMembers types.Set
+		planMembers   types.Set
+		stateMembers  types.Set
 		want          []types.String
 	}{
 		"preserves state when members omitted": {
-			configMembers: types.ListNull(types.StringType),
-			planMembers:   types.ListUnknown(types.StringType),
-			stateMembers:  listStringValue(stringValues("member-1")),
+			configMembers: types.SetNull(types.StringType),
+			planMembers:   types.SetUnknown(types.StringType),
+			stateMembers:  setStringValue(stringValues("member-1")),
 			want:          stringValues("member-1"),
 		},
 		"preserves state when members remain unknown": {
-			configMembers: types.ListUnknown(types.StringType),
-			planMembers:   types.ListUnknown(types.StringType),
-			stateMembers:  listStringValue(stringValues("member-1")),
+			configMembers: types.SetUnknown(types.StringType),
+			planMembers:   types.SetUnknown(types.StringType),
+			stateMembers:  setStringValue(stringValues("member-1")),
 			want:          stringValues("member-1"),
 		},
 		"uses explicit empty members list": {
-			configMembers: listStringValue([]types.String{}),
-			planMembers:   listStringValue([]types.String{}),
-			stateMembers:  listStringValue(stringValues("member-1")),
+			configMembers: setStringValue([]types.String{}),
+			planMembers:   setStringValue([]types.String{}),
+			stateMembers:  setStringValue(stringValues("member-1")),
 			want:          nil,
 		},
 		"uses configured members list": {
-			configMembers: listStringValue(stringValues("member-2")),
-			planMembers:   listStringValue(stringValues("member-2")),
-			stateMembers:  listStringValue(stringValues("member-1")),
+			configMembers: setStringValue(stringValues("member-2")),
+			planMembers:   setStringValue(stringValues("member-2")),
+			stateMembers:  setStringValue(stringValues("member-1")),
 			want:          stringValues("member-2"),
 		},
 	}
@@ -138,9 +148,9 @@ func TestResolveGroupMembersForUpdate(t *testing.T) {
 
 func assertResolvedGroupMembers(
 	t *testing.T,
-	configMembers types.List,
-	planMembers types.List,
-	stateMembers types.List,
+	configMembers types.Set,
+	planMembers types.Set,
+	stateMembers types.Set,
 	want []types.String,
 ) {
 	t.Helper()
@@ -157,6 +167,9 @@ func assertResolvedGroupMembers(
 		t.Fatalf("unexpected diagnostics: %v", diags)
 	}
 
+	slices.SortFunc(got, compareStringValues)
+	slices.SortFunc(want, compareStringValues)
+
 	if len(got) != len(want) {
 		t.Fatalf("expected %d members, got %d: %#v", len(want), len(got), got)
 	}
@@ -166,6 +179,10 @@ func assertResolvedGroupMembers(
 			t.Fatalf("member %d: expected %#v, got %#v", i, want[i], got[i])
 		}
 	}
+}
+
+func compareStringValues(left, right types.String) int {
+	return strings.Compare(left.ValueString(), right.ValueString())
 }
 
 func TestBuildCreateGroupMembershipOps(t *testing.T) {
