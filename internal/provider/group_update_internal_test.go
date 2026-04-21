@@ -1,102 +1,71 @@
 package provider
 
 import (
-	"fmt"
+	"errors"
 	"testing"
-
-	"github.com/passbolt/go-passbolt/api"
 )
 
-func TestDecryptedGroupSecretByResourceIDPrefersCurrentUser(t *testing.T) {
+func TestCachedDecryptedSecretReturnsLoadedValueOnCacheMiss(t *testing.T) {
 	t.Parallel()
 
-	got, err := decryptedGroupSecretByResourceID(
-		[]api.Secret{
-			{UserID: "other-user", ResourceID: "resource-1", Data: "other-secret"},
-			{UserID: "current-user", ResourceID: "resource-1", Data: "current-secret"},
-		},
-		"resource-1",
-		"current-user",
-		testDecryptResults(map[string]string{
-			"other-secret":   "other-data",
-			"current-secret": "current-data",
-		}),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "current-data" {
-		t.Fatalf("expected decrypted secret %q, got %q", "current-data", got)
-	}
-}
+	cache := map[string]string{}
+	loadCalls := 0
 
-func TestDecryptedGroupSecretByResourceIDFallsBackToDecryptableMatch(t *testing.T) {
-	t.Parallel()
-
-	got, err := decryptedGroupSecretByResourceID(
-		[]api.Secret{
-			{UserID: "current-user", ResourceID: "resource-1", Data: "broken-secret"},
-			{UserID: "other-user", ResourceID: "resource-1", Data: "other-secret"},
-		},
-		"resource-1",
-		"current-user",
-		testDecryptResults(map[string]string{
-			"other-secret": "other-data",
-		}),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "other-data" {
-		t.Fatalf("expected decrypted secret %q, got %q", "other-data", got)
-	}
-}
-
-func TestDecryptedGroupSecretByResourceIDReturnsErrorWhenNoMatchExists(t *testing.T) {
-	t.Parallel()
-
-	_, err := decryptedGroupSecretByResourceID(
-		[]api.Secret{
-			{UserID: "current-user", ResourceID: "resource-1", Data: "current-secret"},
-		},
-		"resource-2",
-		"current-user",
-		testDecryptResults(map[string]string{}),
-	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if err.Error() != "cannot find secret for resource ID resource-2" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDecryptedGroupSecretByResourceIDReturnsErrorWhenNothingDecrypts(t *testing.T) {
-	t.Parallel()
-
-	_, err := decryptedGroupSecretByResourceID(
-		[]api.Secret{
-			{UserID: "current-user", ResourceID: "resource-1", Data: "broken-secret"},
-			{UserID: "other-user", ResourceID: "resource-1", Data: "other-broken-secret"},
-		},
-		"resource-1",
-		"current-user",
-		testDecryptResults(map[string]string{}),
-	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if err.Error() != "cannot decrypt secret for resource ID resource-1" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func testDecryptResults(results map[string]string) func(string) (string, error) {
-	return func(data string) (string, error) {
-		if decrypted, ok := results[data]; ok {
-			return decrypted, nil
+	got, err := cachedDecryptedSecret(cache, "resource-1", func(resourceID string) (string, error) {
+		loadCalls++
+		if resourceID != "resource-1" {
+			t.Fatalf("expected resource-1, got %s", resourceID)
 		}
 
-		return "", fmt.Errorf("cannot decrypt %s", data)
+		return "plaintext", nil
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got != "plaintext" {
+		t.Fatalf("expected plaintext, got %q", got)
+	}
+	if loadCalls != 1 {
+		t.Fatalf("expected loader to be called once, got %d", loadCalls)
+	}
+	if cache["resource-1"] != "plaintext" {
+		t.Fatalf("expected cache to store plaintext, got %q", cache["resource-1"])
+	}
+}
+
+func TestCachedDecryptedSecretReturnsCachedValue(t *testing.T) {
+	t.Parallel()
+
+	cache := map[string]string{
+		"resource-1": "cached-plaintext",
+	}
+
+	got, err := cachedDecryptedSecret(cache, "resource-1", func(resourceID string) (string, error) {
+		t.Fatalf("loader should not be called for cached resource %s", resourceID)
+
+		return "", nil
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got != "cached-plaintext" {
+		t.Fatalf("expected cached-plaintext, got %q", got)
+	}
+}
+
+func TestCachedDecryptedSecretReturnsLoaderError(t *testing.T) {
+	t.Parallel()
+
+	cache := map[string]string{}
+	expectedErr := errors.New("boom")
+
+	_, err := cachedDecryptedSecret(cache, "resource-1", func(_ string) (string, error) {
+		return "", expectedErr
+	})
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+	if _, ok := cache["resource-1"]; ok {
+		t.Fatal("expected cache to stay empty on loader error")
 	}
 }

@@ -170,24 +170,19 @@ func appendMissingGroupSecrets(
 		return fmt.Errorf("getting users: %w", err)
 	}
 
-	secrets := flattenGroupSecrets(dryRun.DryRun.Secrets)
 	decryptedSecretCache := map[string]string{}
-	currentUserID := client.GetUserID()
 
 	for _, container := range dryRun.DryRun.SecretsNeeded {
 		missingSecret := container.Secret
-		decryptedSecret, ok := decryptedSecretCache[missingSecret.ResourceID]
-		if !ok {
-			decryptedSecret, err := decryptedGroupSecretByResourceID(
-				secrets,
-				missingSecret.ResourceID,
-				currentUserID,
-				client.DecryptMessage,
-			)
-			if err != nil {
-				return fmt.Errorf("decrypting secret: %w", err)
-			}
-			decryptedSecretCache[missingSecret.ResourceID] = decryptedSecret
+		decryptedSecret, err := cachedDecryptedSecret(
+			decryptedSecretCache,
+			missingSecret.ResourceID,
+			func(resourceID string) (string, error) {
+				return currentUserDecryptedSecretByResourceID(ctx, client, resourceID)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("decrypting secret: %w", err)
 		}
 
 		publicKey, err := groupUserPublicKey(missingSecret.UserID, users)
@@ -208,6 +203,46 @@ func appendMissingGroupSecrets(
 	}
 
 	return nil
+}
+
+func cachedDecryptedSecret(
+	cache map[string]string,
+	resourceID string,
+	load func(resourceID string) (string, error),
+) (string, error) {
+	if decryptedSecret, ok := cache[resourceID]; ok {
+		return decryptedSecret, nil
+	}
+
+	decryptedSecret, err := load(resourceID)
+	if err != nil {
+		return "", err
+	}
+	cache[resourceID] = decryptedSecret
+
+	return decryptedSecret, nil
+}
+
+func currentUserDecryptedSecretByResourceID(
+	ctx context.Context,
+	client *api.Client,
+	resourceID string,
+) (string, error) {
+	secret, err := client.GetSecret(ctx, resourceID)
+	if err != nil {
+		return "", fmt.Errorf("get current user secret for resource %v: %w", resourceID, err)
+	}
+
+	decryptedSecret, err := client.DecryptMessage(secret.Data)
+	if err != nil {
+		return "", fmt.Errorf("decrypt current user secret for resource %v: %w", resourceID, err)
+	}
+
+	if decryptedSecret == "" {
+		return "", fmt.Errorf("decrypted current user secret for resource %v is empty", resourceID)
+	}
+
+	return decryptedSecret, nil
 }
 
 func saveGroupUpdate(
@@ -270,15 +305,6 @@ func verifyGroupMembershipOperations(
 	return nil
 }
 
-func flattenGroupSecrets(containers []api.GroupSecret) []api.Secret {
-	secrets := []api.Secret{}
-	for _, container := range containers {
-		secrets = append(secrets, container.Secret...)
-	}
-
-	return secrets
-}
-
 func groupMembershipByUserID(
 	memberships []api.GroupMembership,
 	userID string,
@@ -290,62 +316,6 @@ func groupMembershipByUserID(
 	}
 
 	return nil, fmt.Errorf("cannot find membership for user ID %v", userID)
-}
-
-func decryptedGroupSecretByResourceID(
-	secrets []api.Secret,
-	resourceID,
-	currentUserID string,
-	decrypt func(string) (string, error),
-) (string, error) {
-	candidates := groupSecretsByResourceID(secrets, resourceID)
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("cannot find secret for resource ID %v", resourceID)
-	}
-
-	tryDecrypt := func(secret api.Secret) (string, bool) {
-		decryptedSecret, err := decrypt(secret.Data)
-		if err != nil {
-			return "", false
-		}
-
-		return decryptedSecret, true
-	}
-
-	if currentUserID != "" {
-		for _, secret := range candidates {
-			if secret.UserID != currentUserID {
-				continue
-			}
-
-			if decryptedSecret, ok := tryDecrypt(secret); ok {
-				return decryptedSecret, nil
-			}
-		}
-	}
-
-	for _, secret := range candidates {
-		if secret.UserID == currentUserID {
-			continue
-		}
-
-		if decryptedSecret, ok := tryDecrypt(secret); ok {
-			return decryptedSecret, nil
-		}
-	}
-
-	return "", fmt.Errorf("cannot decrypt secret for resource ID %v", resourceID)
-}
-
-func groupSecretsByResourceID(secrets []api.Secret, resourceID string) []api.Secret {
-	matches := make([]api.Secret, 0)
-	for _, secret := range secrets {
-		if secret.ResourceID == resourceID {
-			matches = append(matches, secret)
-		}
-	}
-
-	return matches
 }
 
 func groupUserPublicKey(userID string, users []api.User) (string, error) {

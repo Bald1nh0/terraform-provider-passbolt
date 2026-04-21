@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/passbolt/go-passbolt/api"
+	"github.com/passbolt/go-passbolt/helper"
 )
 
 func TestAccPassboltGroup_fullLifecycle(t *testing.T) {
@@ -93,6 +95,46 @@ func TestAccPassboltGroup_addMemberToSharedGroup(t *testing.T) {
 	})
 }
 
+func TestAccPassboltGroup_addMemberToSharedGroupCanDecryptSecret(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	memberPrivateKey := testAccDecryptUserPrivateKey(t)
+	memberPassphrase := testAccDecryptUserPassphrase(t)
+	managerID := testAccCurrentUserID(t, baseURL, privateKey, passphrase)
+	memberID := testAccDecryptGroupMemberID(t, baseURL, privateKey, passphrase, managerID)
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group-shared-decrypt", suffix)
+	passwordName := testAccName("test-password-shared-decrypt", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			testStepCreateSharedGroupPassword(baseURL, privateKey, passphrase, managerID, groupName, passwordName),
+			testStepAddMemberToSharedGroupAndDecrypt(
+				baseURL,
+				privateKey,
+				passphrase,
+				memberPrivateKey,
+				memberPassphrase,
+				managerID,
+				memberID,
+				groupName,
+				passwordName,
+			),
+		},
+	})
+}
+
 func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, managerID string) string {
 	t.Helper()
 
@@ -138,6 +180,87 @@ func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, manager
 	}
 
 	return memberID
+}
+
+func testAccDecryptGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, managerID string) string {
+	t.Helper()
+
+	memberID := os.Getenv("PASSBOLT_DECRYPT_TEST_USER_ID")
+	if memberID != "" {
+		if memberID == managerID {
+			t.Skip("PASSBOLT_DECRYPT_TEST_USER_ID must be different from PASSBOLT_MANAGER_ID")
+		}
+
+		return memberID
+	}
+
+	memberEmail := os.Getenv("PASSBOLT_DECRYPT_TEST_USER_EMAIL")
+	if memberEmail == "" {
+		return testAccGroupMemberID(t, baseURL, privateKey, passphrase, managerID)
+	}
+
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		t.Fatalf("failed to create Passbolt API client: %v", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		t.Fatalf("failed to log in to Passbolt API: %v", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	users, err := client.GetUsers(ctx, &api.GetUsersOptions{
+		FilterSearch: memberEmail,
+	})
+	if err != nil {
+		t.Fatalf("failed to look up decrypt test user %q: %v", memberEmail, err)
+	}
+	if len(users) == 0 {
+		t.Skipf("PASSBOLT_DECRYPT_TEST_USER_EMAIL %q did not match any user", memberEmail)
+	}
+
+	memberID = users[0].ID
+	if memberID == managerID {
+		t.Skip("PASSBOLT_DECRYPT_TEST_USER_EMAIL resolves to PASSBOLT_MANAGER_ID; skipping decrypt acceptance test")
+	}
+
+	return memberID
+}
+
+func testAccDecryptUserPrivateKey(t *testing.T) string {
+	t.Helper()
+
+	privateKey := os.Getenv("PASSBOLT_DECRYPT_TEST_USER_PRIVATE_KEY")
+	if privateKey != "" {
+		return privateKey
+	}
+
+	privateKey = os.Getenv("PASSBOLT_MEMBER_PRIVATE_KEY")
+	if privateKey == "" {
+		t.Skip(
+			"PASSBOLT_DECRYPT_TEST_USER_PRIVATE_KEY or PASSBOLT_MEMBER_PRIVATE_KEY is required for decrypt acceptance tests",
+		)
+	}
+
+	return privateKey
+}
+
+func testAccDecryptUserPassphrase(t *testing.T) string {
+	t.Helper()
+
+	passphrase := os.Getenv("PASSBOLT_DECRYPT_TEST_USER_PASSPHRASE")
+	if passphrase != "" {
+		return passphrase
+	}
+
+	passphrase = os.Getenv("PASSBOLT_MEMBER_PASSPHRASE")
+	if passphrase == "" {
+		t.Skip("PASSBOLT_DECRYPT_TEST_USER_PASSPHRASE or PASSBOLT_MEMBER_PASSPHRASE is required for decrypt acceptance tests")
+	}
+
+	return passphrase
 }
 
 func testAccCurrentUserID(t *testing.T, baseURL, privateKey, passphrase string) string {
@@ -307,6 +430,37 @@ func testStepAddMemberToSharedGroup(
 	}
 }
 
+func testStepAddMemberToSharedGroupAndDecrypt(
+	baseURL,
+	privateKey,
+	passphrase,
+	memberPrivateKey,
+	memberPassphrase,
+	managerID,
+	memberID,
+	groupName,
+	passwordName string,
+) resource.TestStep {
+	return resource.TestStep{
+		Config: testGroupWithSharedPasswordConfig(
+			baseURL,
+			privateKey,
+			passphrase,
+			managerID,
+			memberID,
+			groupName,
+			passwordName,
+		),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+			resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+			resource.TestCheckResourceAttr("passbolt_group.test", "members.#", "1"),
+			resource.TestCheckResourceAttr("passbolt_password.shared", "name", passwordName),
+			testCheckSharedPasswordDecryptableAsMember(baseURL, memberPrivateKey, memberPassphrase, passwordName),
+		),
+	}
+}
+
 func testStepNoDriftSharedGroupMember(
 	baseURL,
 	privateKey,
@@ -399,4 +553,55 @@ resource "passbolt_password" "shared" {
   share_groups = [passbolt_group.test.name]
 }
 `, baseURL, privateKey, passphrase, groupName, managerID, members, passwordName)
+}
+
+func testCheckSharedPasswordDecryptableAsMember(
+	baseURL,
+	memberPrivateKey,
+	memberPassphrase,
+	passwordName string,
+) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		resourceState, ok := state.RootModule().Resources["passbolt_password.shared"]
+		if !ok {
+			return fmt.Errorf("passbolt_password.shared not found in Terraform state")
+		}
+
+		resourceID := resourceState.Primary.ID
+		if resourceID == "" {
+			return fmt.Errorf("passbolt_password.shared id is empty")
+		}
+
+		ctx := context.Background()
+		client, err := api.NewClient(nil, "", baseURL, memberPrivateKey, memberPassphrase)
+		if err != nil {
+			return fmt.Errorf("failed to create Passbolt API client for member: %w", err)
+		}
+		if err := client.Login(ctx); err != nil {
+			return fmt.Errorf("failed to log in as shared-group member: %w", err)
+		}
+		defer func() {
+			_ = client.Logout(ctx)
+		}()
+
+		_, name, username, uri, password, _, err := helper.GetResource(ctx, client, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt shared resource %s as member: %w", resourceID, err)
+		}
+
+		if name != passwordName {
+			return fmt.Errorf("expected shared resource name %q, got %q", passwordName, name)
+		}
+		if username != "shared-user" {
+			return fmt.Errorf("expected shared resource username %q, got %q", "shared-user", username)
+		}
+		if uri != "https://shared-group.example.com" {
+			return fmt.Errorf("expected shared resource uri %q, got %q", "https://shared-group.example.com", uri)
+		}
+		if password != "shared-secret" {
+			return fmt.Errorf("expected shared resource password %q, got %q", "shared-secret", password)
+		}
+
+		return nil
+	}
 }
