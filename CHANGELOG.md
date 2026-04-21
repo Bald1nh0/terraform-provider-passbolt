@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.6 — 2026-04-21
+
+### 🛠 Fixed
+
+- `passbolt_group` now preserves the decrypted secret payload when re-encrypting secrets for users added to an existing shared group, fixing broken secrets that were visible but not decryptable.
+
 ## v1.5.5 — 2026-04-20
 
 ### 🛠 Fixed

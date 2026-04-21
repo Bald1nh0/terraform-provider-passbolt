@@ -337,6 +337,10 @@ output "db_admin_password" {
   - `PASSBOLT_TEST_USER_EMAIL`
   - `PASSBOLT_TEST_EMAIL_DOMAIN` (optional; defaults to `example.com` for generated acceptance-test users)
   - `PASSBOLT_MEMBER_ID` (optional; must be different from `PASSBOLT_MANAGER_ID`)
+  - `PASSBOLT_DECRYPT_TEST_USER_EMAIL` (optional; dedicated user for decrypt-after-group-update acceptance coverage)
+  - `PASSBOLT_DECRYPT_TEST_USER_ID` (optional; dedicated user UUID for decrypt-after-group-update acceptance coverage)
+  - `PASSBOLT_DECRYPT_TEST_USER_PRIVATE_KEY` (optional; dedicated user private key for decrypt-after-group-update acceptance coverage)
+  - `PASSBOLT_DECRYPT_TEST_USER_PASSPHRASE` (optional; dedicated user passphrase for decrypt-after-group-update acceptance coverage)
 
 ---
 

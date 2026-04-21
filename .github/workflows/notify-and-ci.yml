@@ -45,14 +45,22 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.26.2'
-          cache: true
+          cache: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Show Terraform version
+        run: terraform version
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11
 
-      - name: Run tests
+      - name: Run acceptance tests
         env:
           TF_ACC: "1"
           PASSBOLT_BASE_URL: ${{ vars.PASSBOLT_BASE_URL != '' && vars.PASSBOLT_BASE_URL || secrets.PASSBOLT_BASE_URL }}
@@ -62,7 +70,7 @@ jobs:
           PASSBOLT_TEST_USER_EMAIL: ${{ vars.PASSBOLT_TEST_USER_EMAIL != '' && vars.PASSBOLT_TEST_USER_EMAIL || secrets.PASSBOLT_TEST_USER_EMAIL }}
           PASSBOLT_TEST_EMAIL_DOMAIN: ${{ vars.PASSBOLT_TEST_EMAIL_DOMAIN != '' && vars.PASSBOLT_TEST_EMAIL_DOMAIN || secrets.PASSBOLT_TEST_EMAIL_DOMAIN }}
         run: |
-          go test ./... -v
+          go test ./... -count=1 -v
 
   notify-success:
     if: ${{ success() && github.event_name == 'pull_request' }}
