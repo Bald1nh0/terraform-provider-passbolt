@@ -13,8 +13,6 @@ import (
 )
 
 func TestManualPassboltGroupAddMemberToSharedGroupApplyForGUI(t *testing.T) {
-	t.Parallel()
-
 	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
 
 	baseURL := os.Getenv("PASSBOLT_BASE_URL")
@@ -54,8 +52,6 @@ func TestManualPassboltGroupAddMemberToSharedGroupApplyForGUI(t *testing.T) {
 }
 
 func TestManualPassboltGroupAddMemberToSharedGroupDestroyForGUI(t *testing.T) {
-	t.Parallel()
-
 	workdir := manualGUIWorkdir(t, manualGUIRunID(t))
 	if _, err := os.Stat(filepath.Join(workdir, "terraform.tfstate")); err != nil {
 		t.Fatalf("manual GUI state not found in %s: %v", workdir, err)
