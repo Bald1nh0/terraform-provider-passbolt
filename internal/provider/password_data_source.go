@@ -75,7 +75,8 @@ func (d *passwordDataSource) Metadata(
 func (d *passwordDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation " +
-			"or outputting secrets to other modules. Returns all metadata and the decrypted secret value.",
+			"or outputting secrets to other modules. Returns all metadata and the decrypted secret value. " +
+			"The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Required:    true,
@@ -102,9 +103,10 @@ func (d *passwordDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Description: "Parent folder's UUID containing this password/secret.",
 			},
 			"password": schema.StringAttribute{
-				Computed:    true,
-				Sensitive:   true,
-				Description: "The **actual secret value** (Sensitive, will not be displayed in UI/logs).",
+				Computed:  true,
+				Sensitive: true,
+				Description: "The **actual secret value**. Sensitive values are masked in CLI output, but Terraform " +
+					"will still persist the decrypted value in state.",
 			},
 		},
 	}

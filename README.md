@@ -20,7 +20,7 @@ terraform {
   required_providers {
     passbolt = {
       source  = "Bald1nh0/passbolt"
-      version = "~> 1.5"
+      version = "~> 1.6"
     }
   }
 }
@@ -69,12 +69,13 @@ provider "passbolt" {
 ## Common use cases
 
 - Onboard and offboard Passbolt users, roles, and groups with Terraform.
-- Sync application secrets from AWS SSM Parameter Store into Passbolt.
+- Sync application secrets from AWS SSM Parameter Store into Passbolt with either legacy or write-only secret flows.
 - Manage shared folders and group-based access for DevOps or platform teams.
 
 ## Requirements
 
 - Terraform 0.13+ (tested with 1.3+)
+- Terraform 1.11+ to use `passbolt_password.password_wo`
 - Go 1.26.2+ (for building the provider)
 - Passbolt server 3.0+ (self-hosted, tested on CE/PRO)
 
@@ -125,7 +126,7 @@ provider "passbolt" {
 }
 ```
 
-> _This protects your private key from leaking in state files or configs, improving security in production and CI/CD pipelines._
+> _This keeps your provider credentials out of the repository, but the decrypted `aws_ssm_parameter` values are still persisted in Terraform state. Prefer environment variables or other runtime secret injection if those credentials must stay out of state entirely._
 
 ---
 
@@ -155,25 +156,59 @@ resource "passbolt_folder" "application_a_prod_sub_folder_3" {
 
 ## Resource: passbolt_password
 
-Creates a new password in Passbolt, can share with group.
+Creates a new password in Passbolt and can share it with groups.
+
+`passbolt_password` supports two secret flows:
+
+- `password`: legacy flow, masked in CLI output but persisted in Terraform state.
+- `password_wo` + `password_wo_version`: write-only flow, omitted from Terraform plan/state. Increment the version to rotate the password.
 
 ```hcl
+variable "centrifugo_admin_password" {
+  description = "Password shared with the DevOps group."
+  type        = string
+  sensitive   = true
+}
+
 data "passbolt_group" "devops" {
   name = "DevOps"
 }
 
 resource "passbolt_password" "example" {
-  name          = "centifugo_admin"
-  username      = "admin"
-  password      = "MY_SECRET"
-  uri           = "https://centrifugo.example.com"
-  folder_parent = passbolt_folder.application_a_prod.id
-  share_groups  = [data.passbolt_group.devops.id]
+  name                = "centifugo_admin"
+  username            = "admin"
+  password_wo         = var.centrifugo_admin_password
+  password_wo_version = 1
+  uri                 = "https://centrifugo.example.com"
+  folder_parent       = passbolt_folder.application_a_prod.id
+  share_groups        = [data.passbolt_group.devops.id]
 }
 ```
+
+### Optional: legacy stateful flow
+
+Use this only if you intentionally accept the Terraform state risk and want the old drift-detectable behavior.
+
+```hcl
+variable "centrifugo_admin_password_stateful" {
+  description = "Password persisted in Terraform state."
+  type        = string
+  sensitive   = true
+}
+
+resource "passbolt_password" "example_stateful" {
+  name     = "centifugo_admin_legacy"
+  username = "admin"
+  password = var.centrifugo_admin_password_stateful
+  uri      = "https://centrifugo.example.com"
+}
+```
+
+> _Less secure:_ even when the input variable is marked `sensitive`, Terraform still stores `password` in state. Prefer `password_wo` for new configurations.
+
 ### Example: Using secret from AWS SSM
 
-You can pull a secret from AWS and inject into Passbolt using Terraform:
+You can pull a secret from AWS and inject it into Passbolt using Terraform:
 
 ```hcl
 data "aws_ssm_parameter" "centrifugo_admin_password" {
@@ -186,14 +221,17 @@ data "passbolt_group" "backend" {
 }
 
 resource "passbolt_password" "centrifugo_admin_password" {
-  name          = "CentrifugoAdmin"
-  password      = data.aws_ssm_parameter.centrifugo_admin_password.value
-  username      = "no_need"
-  uri           = "https://centrifugo-dev.example.com/"
-  folder_parent = "Backend"
-  share_groups  = [data.passbolt_group.backend.id]
+  name                = "CentrifugoAdmin"
+  password_wo         = data.aws_ssm_parameter.centrifugo_admin_password.value
+  password_wo_version = 1
+  username            = "no_need"
+  uri                 = "https://centrifugo-dev.example.com/"
+  folder_parent       = "Backend"
+  share_groups        = [data.passbolt_group.backend.id]
 }
 ```
+
+> _`password_wo` keeps the secret out of the `passbolt_password` state entry, but the upstream `data.aws_ssm_parameter` value is still stored in Terraform state. Use an ephemeral source or runtime secret injection if you need the full workflow to avoid state persistence._
 
 ---
 

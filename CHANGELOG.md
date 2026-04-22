@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.6.0 — 2026-04-22
+
+### ✨ Added
+
+- `passbolt_password.password_wo` and `passbolt_password.password_wo_version` to support write-only password workflows that keep the Passbolt secret out of Terraform plan and state artifacts.
+
+### 🛠 Improved
+
+- `passbolt_password` now rotates write-only secrets only when `password_wo_version` changes, while preserving legacy `password` behavior for users who intentionally keep secrets in state.
+- `passbolt_password` reads now preserve write-only secret state as `null` instead of rehydrating the decrypted password into Terraform state.
+
+### 📝 Documentation
+
+- Documented the difference between legacy `password` and write-only `password_wo` flows across the README, Registry docs, and AWS SSM guide.
+- Clarified that `data.passbolt_password` and classic `data.aws_ssm_parameter` flows still persist decrypted secrets in Terraform state.
+- Added an explicit legacy `password` example with a warning that the flow is less secure because Terraform persists the secret in state.
+
 ## v1.5.6 — 2026-04-21
 
 ### 🛠 Fixed

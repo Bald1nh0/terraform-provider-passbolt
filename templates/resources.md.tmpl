@@ -26,7 +26,7 @@ description: |-
 ~> The authenticated Passbolt API user must be a group manager to change memberships on an existing group.
 {{- end }}
 {{- if eq .Name "passbolt_password" }}
-~> Prefer sourcing password values from variables or external secret stores instead of hardcoding them in Terraform configuration.
+~> `password` keeps the secret in Terraform state for drift detection. Prefer `password_wo` with `password_wo_version` on Terraform 1.11+ when you do not want the secret persisted in plan/state.
 {{- end }}
 {{- if eq .Name "passbolt_folder" }}
 -> `folder_parent` accepts a unique folder name, a folder UUID, or an absolute path such as `/application_A/prod`.

@@ -3,13 +3,20 @@ data "passbolt_group" "devops" {
   name = "DevOps"
 }
 
+variable "terraform_admin_password" {
+  description = "Password shared through Passbolt."
+  type        = string
+  sensitive   = true
+}
+
 resource "passbolt_password" "example" {
-  name          = "Terraform Admin"
-  description   = "Credential for Centrifugo admin"
-  username      = "centrifugo-admin"
-  password      = "supersecret"
-  uri           = "https://centrifugo.example.com"
-  folder_parent = "Terraform Folders"
+  name                = "Terraform Admin"
+  description         = "Credential for Centrifugo admin"
+  username            = "centrifugo-admin"
+  password_wo         = var.terraform_admin_password
+  password_wo_version = 1
+  uri                 = "https://centrifugo.example.com"
+  folder_parent       = "Terraform Folders"
 
   # Recommended: use share_groups for future compatibility
   share_groups = [data.passbolt_group.devops.id]
