@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"terraform-provider-passbolt/tools"
 
@@ -395,7 +396,7 @@ func buildPasswordStateSecrets(
 	}
 
 	if existing.Password.IsNull() || existing.Password.IsUnknown() {
-		return types.StringNull(), types.StringNull(), types.Int64Null()
+		return pickOptional(actualPassword), types.StringNull(), types.Int64Null()
 	}
 
 	return pickPassword(actualPassword, existing.Password), types.StringNull(), types.Int64Null()
@@ -495,9 +496,9 @@ func updateResourceFields(
 		return diags
 	}
 
-	err := helper.UpdateResource(
+	err := updatePassboltPasswordResource(
 		ctx,
-		r.client.Client,
+		r.client,
 		state.ID.ValueString(),
 		plan.Name.ValueString(),
 		plan.Username.ValueString(),
@@ -515,6 +516,271 @@ func updateResourceFields(
 	shareResourceIfNeeded(ctx, r.client, plan, state.ID.ValueString(), &diags)
 
 	return diags
+}
+
+func updatePassboltPasswordResource(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	name string,
+	username string,
+	uri string,
+	password string,
+	description string,
+) error {
+	resourceData, resourceType, users, err := loadPasswordUpdateContext(ctx, client, resourceID)
+	if err != nil {
+		return err
+	}
+
+	updatedResource := api.Resource{
+		ID:             resourceID,
+		ResourceTypeID: resourceData.ResourceTypeID,
+		Name:           resourceData.Name,
+		Username:       resourceData.Username,
+		URI:            resourceData.URI,
+	}
+	updatedResource.Name = name
+	updatedResource.Username = username
+	updatedResource.URI = uri
+
+	if resourceType.Slug == "password-string" {
+		updatedResource.Description = description
+	}
+
+	secretData, err := buildUpdatedPasswordSecretData(ctx, client, resourceID, resourceType.Slug, password, description)
+	if err != nil {
+		return err
+	}
+
+	updatedResource.Secrets, err = encryptSecretDataForUsers(client.Client, users, secretData)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Client.UpdateResource(ctx, resourceID, updatedResource)
+	if err != nil {
+		return fmt.Errorf("updating resource: %w", err)
+	}
+
+	return nil
+}
+
+func loadPasswordUpdateContext(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+) (*api.Resource, *api.ResourceType, []api.User, error) {
+	resourceData, err := client.Client.GetResource(ctx, resourceID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("getting resource: %w", err)
+	}
+
+	resourceType, err := client.Client.GetResourceType(ctx, resourceData.ResourceTypeID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("getting resource type: %w", err)
+	}
+
+	users, err := client.Client.GetUsers(ctx, &api.GetUsersOptions{
+		FilterHasAccess: []string{resourceID},
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("getting users: %w", err)
+	}
+
+	return resourceData, resourceType, users, nil
+}
+
+func buildUpdatedPasswordSecretData(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	resourceTypeSlug string,
+	password string,
+	description string,
+) (string, error) {
+	switch resourceTypeSlug {
+	case "password-string":
+		return passwordSecretData(ctx, client, resourceID, password)
+	case "password-and-description":
+		return passwordAndDescriptionSecretData(ctx, client, resourceID, password, description)
+	case "password-description-totp":
+		return passwordDescriptionTOTPSecretData(ctx, client, resourceID, password, description)
+	default:
+		return "", fmt.Errorf("unsupported passbolt resource type: %s", resourceTypeSlug)
+	}
+}
+
+func passwordSecretData(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	password string,
+) (string, error) {
+	if password != "" {
+		return password, nil
+	}
+
+	secret, err := client.Client.GetSecret(ctx, resourceID)
+	if err != nil {
+		return "", fmt.Errorf("getting secret: %w", err)
+	}
+
+	secretData, err := client.Client.DecryptMessage(secret.Data)
+	if err != nil {
+		return "", fmt.Errorf("decrypting secret: %w", err)
+	}
+
+	return secretData, nil
+}
+
+func passwordAndDescriptionSecretData(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	password string,
+	description string,
+) (string, error) {
+	secretData := api.SecretDataTypePasswordAndDescription{
+		Password:    password,
+		Description: description,
+	}
+
+	if password == "" {
+		oldSecret, err := readPasswordAndDescriptionSecret(ctx, client, resourceID)
+		if err != nil {
+			return "", err
+		}
+
+		secretData.Password = oldSecret.Password
+	}
+
+	marshaled, err := json.Marshal(&secretData)
+	if err != nil {
+		return "", fmt.Errorf("marshalling secret data: %w", err)
+	}
+
+	return string(marshaled), nil
+}
+
+func passwordDescriptionTOTPSecretData(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	password string,
+	description string,
+) (string, error) {
+	oldSecret, err := readPasswordDescriptionTOTPSecret(ctx, client, resourceID)
+	if err != nil {
+		return "", err
+	}
+
+	if password != "" {
+		oldSecret.Password = password
+	}
+
+	oldSecret.Description = description
+
+	marshaled, err := json.Marshal(&oldSecret)
+	if err != nil {
+		return "", fmt.Errorf("marshalling secret data: %w", err)
+	}
+
+	return string(marshaled), nil
+}
+
+func readPasswordAndDescriptionSecret(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+) (api.SecretDataTypePasswordAndDescription, error) {
+	var secretData api.SecretDataTypePasswordAndDescription
+
+	decryptedSecret, err := readDecryptedSecret(ctx, client, resourceID)
+	if err != nil {
+		return secretData, err
+	}
+
+	err = json.Unmarshal([]byte(decryptedSecret), &secretData)
+	if err != nil {
+		return secretData, fmt.Errorf("parsing decrypted secret data: %w", err)
+	}
+
+	return secretData, nil
+}
+
+func readPasswordDescriptionTOTPSecret(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+) (api.SecretDataTypePasswordDescriptionTOTP, error) {
+	var secretData api.SecretDataTypePasswordDescriptionTOTP
+
+	decryptedSecret, err := readDecryptedSecret(ctx, client, resourceID)
+	if err != nil {
+		return secretData, err
+	}
+
+	err = json.Unmarshal([]byte(decryptedSecret), &secretData)
+	if err != nil {
+		return secretData, fmt.Errorf("parsing decrypted secret data: %w", err)
+	}
+
+	return secretData, nil
+}
+
+func readDecryptedSecret(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+) (string, error) {
+	secret, err := client.Client.GetSecret(ctx, resourceID)
+	if err != nil {
+		return "", fmt.Errorf("getting secret: %w", err)
+	}
+
+	decryptedSecret, err := client.Client.DecryptMessage(secret.Data)
+	if err != nil {
+		return "", fmt.Errorf("decrypting secret: %w", err)
+	}
+
+	return decryptedSecret, nil
+}
+
+func encryptSecretDataForUsers(client *api.Client, users []api.User, secretData string) ([]api.Secret, error) {
+	secrets := make([]api.Secret, 0, len(users))
+
+	for _, user := range users {
+		encryptedSecret, err := encryptSecretDataForUser(client, user, secretData)
+		if err != nil {
+			return nil, err
+		}
+
+		secrets = append(secrets, api.Secret{
+			UserID: user.ID,
+			Data:   encryptedSecret,
+		})
+	}
+
+	return secrets, nil
+}
+
+func encryptSecretDataForUser(client *api.Client, user api.User, secretData string) (string, error) {
+	if user.ID == client.GetUserID() {
+		encryptedSecret, err := client.EncryptMessage(secretData)
+		if err != nil {
+			return "", fmt.Errorf("encrypting secret data for current user: %w", err)
+		}
+
+		return encryptedSecret, nil
+	}
+
+	encryptedSecret, err := client.EncryptMessageWithPublicKey(user.GPGKey.ArmoredKey, secretData)
+	if err != nil {
+		return "", fmt.Errorf("encrypting secret data for user %s: %w", user.ID, err)
+	}
+
+	return encryptedSecret, nil
 }
 
 func moveResourceIfNeeded(
@@ -604,7 +870,7 @@ func resolveSecretUpdateInputs(
 
 	passwordValue = currentPassword
 
-	if plan.Description.IsNull() || plan.Description.IsUnknown() {
+	if plan.Description.IsUnknown() {
 		descriptionValue = currentDescription
 	}
 

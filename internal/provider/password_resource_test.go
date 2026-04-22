@@ -40,6 +40,7 @@ func TestAccPasswordResource_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
 			testStepCreatePassword(baseURL, privateKey, passphrase, passwordName),
+			testStepImportPassword(),
 			testStepCheckDriftless(baseURL, privateKey, passphrase, passwordName),
 			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, sharedPasswordName, sharedGroupName, managerID),
 			testStepShareSameGroupTwice(baseURL, privateKey, passphrase, sharedPasswordName, sharedGroupName, managerID),
@@ -90,6 +91,14 @@ func testStepCreatePassword(baseURL, privateKey, passphrase, name string) resour
 	}
 }
 
+func testStepImportPassword() resource.TestStep {
+	return resource.TestStep{
+		ResourceName:      "passbolt_password.example",
+		ImportState:       true,
+		ImportStateVerify: true,
+	}
+}
+
 func testStepCheckDriftless(baseURL, privateKey, passphrase, name string) resource.TestStep {
 	return resource.TestStep{
 		// same config to check drift
@@ -130,6 +139,8 @@ func testStepUpdatePassword(baseURL, privateKey, passphrase, name string) resour
 }
 
 func testStepCreatePasswordWriteOnly(baseURL, privateKey, passphrase, name string) resource.TestStep {
+	description := "Initial write-only description"
+
 	return resource.TestStep{
 		Config: testPasswordWriteOnlyConfig(
 			baseURL,
@@ -139,6 +150,7 @@ func testStepCreatePasswordWriteOnly(baseURL, privateKey, passphrase, name strin
 			"wo-user",
 			"https://write-only.example.com",
 			"initial-write-only-secret",
+			&description,
 			1,
 		),
 		Check: resource.ComposeTestCheckFunc(
@@ -155,6 +167,13 @@ func testStepCreatePasswordWriteOnly(baseURL, privateKey, passphrase, name strin
 				"https://write-only.example.com",
 				"initial-write-only-secret",
 			),
+			testCheckPasswordDescription(
+				baseURL,
+				privateKey,
+				passphrase,
+				"passbolt_password.example",
+				description,
+			),
 		),
 		ConfigStateChecks: passwordWriteOnlyStateChecks(1),
 	}
@@ -170,6 +189,7 @@ func testStepUpdatePasswordWriteOnlyWithoutRotation(baseURL, privateKey, passphr
 			"wo-user-updated",
 			"https://write-only-updated.example.com",
 			"should-not-rotate-without-version-bump",
+			nil,
 			1,
 		),
 		Check: resource.ComposeTestCheckFunc(
@@ -186,12 +206,22 @@ func testStepUpdatePasswordWriteOnlyWithoutRotation(baseURL, privateKey, passphr
 				"https://write-only-updated.example.com",
 				"initial-write-only-secret",
 			),
+			testCheckPasswordDescription(
+				baseURL,
+				privateKey,
+				passphrase,
+				"passbolt_password.example",
+				"",
+			),
+			resource.TestCheckNoResourceAttr("passbolt_password.example", "description"),
 		),
 		ConfigStateChecks: passwordWriteOnlyStateChecks(1),
 	}
 }
 
 func testStepRotatePasswordWriteOnly(baseURL, privateKey, passphrase, name string) resource.TestStep {
+	description := "Rotated write-only description"
+
 	return resource.TestStep{
 		Config: testPasswordWriteOnlyConfig(
 			baseURL,
@@ -201,6 +231,7 @@ func testStepRotatePasswordWriteOnly(baseURL, privateKey, passphrase, name strin
 			"wo-user-updated",
 			"https://write-only-updated.example.com",
 			"rotated-write-only-secret",
+			&description,
 			2,
 		),
 		Check: resource.ComposeTestCheckFunc(
@@ -217,6 +248,14 @@ func testStepRotatePasswordWriteOnly(baseURL, privateKey, passphrase, name strin
 				"https://write-only-updated.example.com",
 				"rotated-write-only-secret",
 			),
+			testCheckPasswordDescription(
+				baseURL,
+				privateKey,
+				passphrase,
+				"passbolt_password.example",
+				description,
+			),
+			resource.TestCheckResourceAttr("passbolt_password.example", "description", description),
 		),
 		ConfigStateChecks: passwordWriteOnlyStateChecks(2),
 	}
@@ -377,8 +416,14 @@ func testPasswordWriteOnlyConfig(
 	username,
 	uri,
 	password string,
+	description *string,
 	version int64,
 ) string {
+	descriptionBlock := ""
+	if description != nil {
+		descriptionBlock = fmt.Sprintf("  description         = %q\n", *description)
+	}
+
 	return fmt.Sprintf(`
 provider "passbolt" {
   base_url    = "%s"
@@ -394,8 +439,9 @@ resource "passbolt_password" "example" {
   uri                 = "%s"
   password_wo         = "%s"
   password_wo_version = %d
+%s
 }
-`, baseURL, privateKey, passphrase, name, username, uri, password, version)
+`, baseURL, privateKey, passphrase, name, username, uri, password, version, descriptionBlock)
 }
 
 func passwordWriteOnlyStateChecks(version int64) []statecheck.StateCheck {
@@ -467,6 +513,49 @@ func testCheckPasswordValue(
 		}
 		if password != expectedPassword {
 			return fmt.Errorf("expected resource password %q, got %q", expectedPassword, password)
+		}
+
+		return nil
+	}
+}
+
+func testCheckPasswordDescription(
+	baseURL,
+	privateKey,
+	passphrase,
+	resourceAddress,
+	expectedDescription string,
+) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		resourceState, ok := state.RootModule().Resources[resourceAddress]
+		if !ok {
+			return fmt.Errorf("%s not found in Terraform state", resourceAddress)
+		}
+
+		resourceID := resourceState.Primary.ID
+		if resourceID == "" {
+			return fmt.Errorf("%s id is empty", resourceAddress)
+		}
+
+		ctx := context.Background()
+		client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+		if err != nil {
+			return fmt.Errorf("failed to create Passbolt API client: %w", err)
+		}
+		if err := client.Login(ctx); err != nil {
+			return fmt.Errorf("failed to log in to Passbolt API: %w", err)
+		}
+		defer func() {
+			_ = client.Logout(ctx)
+		}()
+
+		_, _, _, _, _, description, err := helper.GetResource(ctx, client, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch Passbolt resource %s: %w", resourceID, err)
+		}
+
+		if description != expectedDescription {
+			return fmt.Errorf("expected resource description %q, got %q", expectedDescription, description)
 		}
 
 		return nil
