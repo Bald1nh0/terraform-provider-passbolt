@@ -23,7 +23,7 @@ description: |-
 -> This data source returns only exact, active, non-deleted users to avoid ambiguous lookups in automation.
 {{- end }}
 {{- if eq .Name "passbolt_password" }}
-!> The returned password value is sensitive and can flow into downstream resources or outputs. Expose it only where strictly necessary.
+!> The returned password value is sensitive and can flow into downstream resources or outputs. Terraform will still persist the decrypted value in state, so expose it only where strictly necessary.
 {{- end }}
 {{- if eq .Name "passbolt_folders" }}
 -> Use the computed `path` attribute to resolve stable folder references without hardcoding UUIDs.

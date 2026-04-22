@@ -25,12 +25,19 @@ output "all_folder_paths" {
 
 # Or use folder path to safely select a UUID in another resource/module:
 
+variable "centrifugo_admin_password" {
+  description = "Password stored in Passbolt."
+  type        = string
+  sensitive   = true
+}
+
 resource "passbolt_password" "example" {
-  name          = "Centrifugo admin"
-  username      = "centrifugo"
-  password      = "secret"
-  uri           = "https://centrifugo.example.com"
-  folder_parent = one([for f in data.passbolt_folders.all.folders : f.id if f.path == "/Terraform Folders"])
+  name                = "Centrifugo admin"
+  username            = "centrifugo"
+  password_wo         = var.centrifugo_admin_password
+  password_wo_version = 1
+  uri                 = "https://centrifugo.example.com"
+  folder_parent       = one([for f in data.passbolt_folders.all.folders : f.id if f.path == "/Terraform Folders"])
 }
 ```
 -> Use the computed `path` attribute to resolve stable folder references without hardcoding UUIDs.

@@ -8,11 +8,12 @@ data "passbolt_group" "platform" {
 }
 
 resource "passbolt_password" "db_admin" {
-  name          = "ExampleDatabaseAdmin"
-  description   = "Administrative database credential synced from AWS SSM"
-  username      = "db-admin"
-  password      = data.aws_ssm_parameter.db_admin_password.value
-  uri           = "postgres://db.example.internal:5432/app"
-  folder_parent = "/Platform"
-  share_groups  = [data.passbolt_group.platform.id]
+  name                = "ExampleDatabaseAdmin"
+  description         = "Administrative database credential synced from AWS SSM"
+  username            = "db-admin"
+  password_wo         = data.aws_ssm_parameter.db_admin_password.value
+  password_wo_version = 1
+  uri                 = "postgres://db.example.internal:5432/app"
+  folder_parent       = "/Platform"
+  share_groups        = [data.passbolt_group.platform.id]
 }

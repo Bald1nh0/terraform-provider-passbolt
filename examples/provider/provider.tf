@@ -3,7 +3,7 @@ terraform {
   required_providers {
     passbolt = {
       source  = "Bald1nh0/passbolt"
-      version = "~> 1.5"
+      version = "~> 1.6"
     }
   }
 }

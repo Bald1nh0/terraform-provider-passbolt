@@ -11,6 +11,8 @@ Manage Passbolt users, groups, folders, passwords, and folder permissions with T
 
 Supports Passbolt CE and PRO, self-hosted deployments, AWS SSM-backed secret workflows, and Terraform-native onboarding/offboarding.
 
+~> `passbolt_password` supports both legacy stateful passwords and Terraform 1.11+ write-only password inputs via `password_wo`.
+
 ## Quick Start
 
 ```terraform
@@ -19,7 +21,7 @@ terraform {
   required_providers {
     passbolt = {
       source  = "Bald1nh0/passbolt"
-      version = "~> 1.5"
+      version = "~> 1.6"
     }
   }
 }
@@ -44,7 +46,7 @@ provider "passbolt" {
 
 - Manage user onboarding, group membership, and shared folders for platform teams.
 - Organize secrets in nested folders and grant access with `passbolt_folder_permission`.
-- Sync externally managed credentials from AWS SSM Parameter Store into Passbolt.
+- Sync externally managed credentials from AWS SSM Parameter Store into Passbolt with either legacy or write-only secret handling.
 
 ## Guides
 
