@@ -93,9 +93,11 @@ func testStepCreatePassword(baseURL, privateKey, passphrase, name string) resour
 
 func testStepImportPassword() resource.TestStep {
 	return resource.TestStep{
-		ResourceName:      "passbolt_password.example",
-		ImportState:       true,
-		ImportStateVerify: true,
+		ResourceName:            "passbolt_password.example",
+		ImportState:             true,
+		ImportStateVerify:       true,
+		ImportStateVerifyIgnore: []string{"password", "password_wo", "password_wo_version"},
+		ImportStateCheck:        testCheckImportedPasswordNotPersisted(),
 	}
 }
 
@@ -556,6 +558,26 @@ func testCheckPasswordDescription(
 
 		if description != expectedDescription {
 			return fmt.Errorf("expected resource description %q, got %q", expectedDescription, description)
+		}
+
+		return nil
+	}
+}
+
+func testCheckImportedPasswordNotPersisted() resource.ImportStateCheckFunc {
+	return func(states []*terraform.InstanceState) error {
+		if len(states) == 0 {
+			return fmt.Errorf("no imported resource states returned")
+		}
+
+		for _, state := range states {
+			if password := state.Attributes["password"]; password != "" {
+				return fmt.Errorf("expected imported password attribute to be empty, got %q", password)
+			}
+
+			if passwordWO := state.Attributes["password_wo"]; passwordWO != "" {
+				return fmt.Errorf("expected imported write-only password attribute to be empty, got %q", passwordWO)
+			}
 		}
 
 		return nil

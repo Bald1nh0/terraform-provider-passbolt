@@ -34,6 +34,12 @@ type passwordResource struct {
 	client *tools.PassboltClient
 }
 
+const passwordImportSecretModeUnknownPrivateKey = "password_import_secret_mode_unknown"
+
+type passwordPrivateStateReader interface {
+	GetKey(ctx context.Context, key string) ([]byte, diag.Diagnostics)
+}
+
 type passwordModel struct {
 	ID                types.String   `tfsdk:"id"`
 	Name              types.String   `tfsdk:"name"`
@@ -76,6 +82,7 @@ func (r *passwordResource) ImportState(
 	resp *resource.ImportStateResponse,
 ) {
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.Private.SetKey(ctx, passwordImportSecretModeUnknownPrivateKey, []byte(`true`))...)
 }
 
 func (r *passwordResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -238,6 +245,7 @@ func (r *passwordResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, buildManagedPasswordState(plan, config, types.StringValue(resourceID)))...)
+	resp.Diagnostics.Append(resp.Private.SetKey(ctx, passwordImportSecretModeUnknownPrivateKey, nil)...)
 }
 
 // resolveFolderId can now match both name and UUID
@@ -363,6 +371,7 @@ func buildPasswordState(
 	client *tools.PassboltClient,
 	id string,
 	existing passwordModel,
+	importedSecretModeUnknown bool,
 ) (passwordModel, diag.Diagnostics) {
 	var state passwordModel
 	var diags diag.Diagnostics
@@ -380,7 +389,11 @@ func buildPasswordState(
 	state.URI = types.StringValue(uri)
 	state.Description = pickOptional(description)
 	state.FolderParent = pickOptional(folderID)
-	state.Password, state.PasswordWO, state.PasswordWOVersion = buildPasswordStateSecrets(existing, password)
+	state.Password, state.PasswordWO, state.PasswordWOVersion = buildPasswordStateSecrets(
+		existing,
+		password,
+		importedSecretModeUnknown,
+	)
 	state.ShareGroup = buildPasswordStateShareGroup(existing)
 	state.ShareGroups = buildPasswordStateShareGroups(existing)
 
@@ -390,12 +403,17 @@ func buildPasswordState(
 func buildPasswordStateSecrets(
 	existing passwordModel,
 	actualPassword string,
+	importedSecretModeUnknown bool,
 ) (types.String, types.String, types.Int64) {
 	if usesWriteOnlyPassword(existing) {
 		return types.StringNull(), types.StringNull(), existing.PasswordWOVersion
 	}
 
 	if existing.Password.IsNull() || existing.Password.IsUnknown() {
+		if importedSecretModeUnknown {
+			return types.StringNull(), types.StringNull(), types.Int64Null()
+		}
+
 		return pickOptional(actualPassword), types.StringNull(), types.Int64Null()
 	}
 
@@ -445,7 +463,12 @@ func (r *passwordResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	newState, diags := buildPasswordState(ctx, r.client, state.ID.ValueString(), state)
+	importedSecretModeUnknown := passwordImportSecretModeUnknown(ctx, req.Private, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	newState, diags := buildPasswordState(ctx, r.client, state.ID.ValueString(), state, importedSecretModeUnknown)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -480,6 +503,21 @@ func (r *passwordResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, buildManagedPasswordState(plan, config, state.ID))...)
+	resp.Diagnostics.Append(resp.Private.SetKey(ctx, passwordImportSecretModeUnknownPrivateKey, nil)...)
+}
+
+func passwordImportSecretModeUnknown(
+	ctx context.Context,
+	privateState passwordPrivateStateReader,
+	diags *diag.Diagnostics,
+) bool {
+	value, privateDiags := privateState.GetKey(ctx, passwordImportSecretModeUnknownPrivateKey)
+	diags.Append(privateDiags...)
+	if privateDiags.HasError() {
+		return false
+	}
+
+	return string(value) == "true"
 }
 
 func updateResourceFields(
