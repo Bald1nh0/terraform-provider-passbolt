@@ -16,8 +16,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/passbolt/go-passbolt/api"
 )
 
 // Ensure interfaces
@@ -37,10 +39,11 @@ type groupResource struct {
 }
 
 type groupModel struct {
-	ID       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	Managers types.Set    `tfsdk:"managers"`
-	Members  types.Set    `tfsdk:"members"`
+	ID                    types.String `tfsdk:"id"`
+	Name                  types.String `tfsdk:"name"`
+	Managers              types.Set    `tfsdk:"managers"`
+	Members               types.Set    `tfsdk:"members"`
+	IgnoreInactiveMembers types.Bool   `tfsdk:"ignore_inactive_members"`
 }
 
 func (r *groupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -109,6 +112,15 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 					setvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
 				},
 			},
+			"ignore_inactive_members": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				Description: "When true, inactive regular members that are not yet part of the group are " +
+					"skipped with a warning instead of failing the apply. Terraform will continue to plan " +
+					"those memberships until the users become active. Group managers remain strict and must " +
+					"already exist and be active in Passbolt.",
+			},
 		},
 	}
 }
@@ -121,18 +133,30 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 
 	managers := setStringValues(ctx, plan.Managers, &resp.Diagnostics)
-	members := setStringValues(ctx, plan.Members, &resp.Diagnostics)
+	desiredMembers := setStringValues(ctx, plan.Members, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := validateGroupMembershipConfig(managers, members); err != nil {
+	if err := validateGroupMembershipConfig(managers, desiredMembers); err != nil {
 		resp.Diagnostics.AddError("Invalid group membership", err.Error())
 
 		return
 	}
 
-	ops := buildCreateGroupMembershipOps(managers, members)
+	appliedMembers := resolveGroupMembersForApply(
+		ctx,
+		r.client.Client,
+		plan.IgnoreInactiveMembers.ValueBool(),
+		desiredMembers,
+		nil,
+		&resp.Diagnostics,
+	)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ops := buildCreateGroupMembershipOps(managers, appliedMembers)
 
 	groupID, err := helper.CreateGroup(ctx, r.client.Client, plan.Name.ValueString(), ops)
 	if err != nil {
@@ -143,7 +167,8 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	plan.ID = types.StringValue(groupID)
 	plan.Managers = setStringValue(managers)
-	plan.Members = setStringValue(members)
+	plan.Members = setStringValue(desiredMembers)
+	plan.IgnoreInactiveMembers = types.BoolValue(plan.IgnoreInactiveMembers.ValueBool())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -165,6 +190,9 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	managerIDs, memberIDs := splitGroupMemberships(memberships, true)
 	state.Managers = setStringValue(managerIDs)
 	state.Members = setStringValue(memberIDs)
+	if state.IgnoreInactiveMembers.IsNull() || state.IgnoreInactiveMembers.IsUnknown() {
+		state.IgnoreInactiveMembers = types.BoolValue(false)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -182,12 +210,12 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 
 	planManagers := setStringValues(ctx, plan.Managers, &resp.Diagnostics)
-	planMembers := resolveGroupMembersForUpdate(ctx, configMembers, plan.Members, state.Members, &resp.Diagnostics)
+	desiredMembers := resolveGroupMembersForUpdate(ctx, configMembers, plan.Members, state.Members, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := validateGroupMembershipConfig(planManagers, planMembers); err != nil {
+	if err := validateGroupMembershipConfig(planManagers, desiredMembers); err != nil {
 		resp.Diagnostics.AddError("Invalid group membership", err.Error())
 
 		return
@@ -201,7 +229,19 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 	stateManagers, stateMembers := splitGroupMemberships(memberships, true)
 
-	ops := buildGroupMembershipOps(planManagers, planMembers, stateManagers, stateMembers)
+	appliedMembers := resolveGroupMembersForApply(
+		ctx,
+		r.client.Client,
+		plan.IgnoreInactiveMembers.ValueBool(),
+		desiredMembers,
+		stateMembers,
+		&resp.Diagnostics,
+	)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	ops := buildGroupMembershipOps(planManagers, appliedMembers, stateManagers, stateMembers)
 
 	err = updateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
 	if err != nil {
@@ -212,8 +252,125 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	plan.ID = state.ID
 	plan.Managers = setStringValue(planManagers)
-	plan.Members = setStringValue(planMembers)
+	plan.Members = setStringValue(desiredMembers)
+	plan.IgnoreInactiveMembers = types.BoolValue(plan.IgnoreInactiveMembers.ValueBool())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func resolveGroupMembersForApply(
+	ctx context.Context,
+	client *api.Client,
+	ignoreInactiveMembers bool,
+	desiredMembers []types.String,
+	currentMembers []types.String,
+	diags *diag.Diagnostics,
+) []types.String {
+	if !ignoreInactiveMembers || !hasPendingGroupMembers(desiredMembers, currentMembers) {
+		return desiredMembers
+	}
+
+	filteredMembers, skippedMembers, err := filterInactivePendingGroupMembersForApply(
+		ctx,
+		client,
+		desiredMembers,
+		currentMembers,
+	)
+	if err != nil {
+		diags.AddError("Error resolving group members", err.Error())
+
+		return nil
+	}
+
+	addInactiveGroupMembersWarning(diags, skippedMembers)
+
+	return filteredMembers
+}
+
+func hasPendingGroupMembers(desiredMembers []types.String, currentMembers []types.String) bool {
+	if len(desiredMembers) == 0 {
+		return false
+	}
+
+	currentMemberSet := groupUserSet(currentMembers)
+	for _, member := range desiredMembers {
+		if !currentMemberSet[member.ValueString()] {
+			return true
+		}
+	}
+
+	return false
+}
+
+func filterInactivePendingGroupMembersForApply(
+	ctx context.Context,
+	client *api.Client,
+	desiredMembers []types.String,
+	currentMembers []types.String,
+) ([]types.String, []string, error) {
+	if len(desiredMembers) == 0 {
+		return desiredMembers, nil, nil
+	}
+
+	users, err := client.GetUsers(ctx, &api.GetUsersOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting users: %w", err)
+	}
+
+	filteredMembers, skippedMembers := filterInactivePendingGroupMembers(desiredMembers, currentMembers, users)
+
+	return filteredMembers, skippedMembers, nil
+}
+
+func filterInactivePendingGroupMembers(
+	desiredMembers []types.String,
+	currentMembers []types.String,
+	users []api.User,
+) ([]types.String, []string) {
+	currentMemberSet := groupUserSet(currentMembers)
+	usersByID := make(map[string]api.User, len(users))
+	for _, user := range users {
+		usersByID[user.ID] = user
+	}
+
+	filteredMembers := make([]types.String, 0, len(desiredMembers))
+	skippedMembers := make([]string, 0)
+
+	for _, member := range desiredMembers {
+		userID := member.ValueString()
+		if currentMemberSet[userID] {
+			filteredMembers = append(filteredMembers, member)
+
+			continue
+		}
+
+		user, ok := usersByID[userID]
+		if !ok || user.Deleted || user.Active {
+			filteredMembers = append(filteredMembers, member)
+
+			continue
+		}
+
+		skippedMembers = append(skippedMembers, userID)
+	}
+
+	slices.Sort(skippedMembers)
+
+	return filteredMembers, skippedMembers
+}
+
+func addInactiveGroupMembersWarning(diags *diag.Diagnostics, skippedMembers []string) {
+	if len(skippedMembers) == 0 {
+		return
+	}
+
+	diags.AddWarning(
+		"Skipped inactive group members",
+		fmt.Sprintf(
+			"passbolt_group skipped inactive regular members %v because ignore_inactive_members is enabled. "+
+				"They will be retried on a later apply once the users activate their Passbolt accounts.",
+			skippedMembers,
+		),
+	)
 }
 
 func setStringValues(ctx context.Context, set types.Set, diags *diag.Diagnostics) []types.String {

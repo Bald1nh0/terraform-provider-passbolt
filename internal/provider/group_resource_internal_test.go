@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
 )
 
@@ -100,6 +101,15 @@ func TestGroupMembershipAttributesUseSetSemantics(t *testing.T) {
 	if len(setAttr.PlanModifiers) != 0 {
 		t.Fatalf("expected members to have no plan modifiers, got %d", len(setAttr.PlanModifiers))
 	}
+
+	ignoreInactiveAttr, ok := resp.Schema.Attributes["ignore_inactive_members"]
+	if !ok {
+		t.Fatal("expected ignore_inactive_members attribute in group schema")
+	}
+
+	if _, ok := ignoreInactiveAttr.(schema.BoolAttribute); !ok {
+		t.Fatalf("expected ignore_inactive_members to be a bool attribute, got %T", ignoreInactiveAttr)
+	}
 }
 
 func TestResolveGroupMembersForUpdate(t *testing.T) {
@@ -143,6 +153,127 @@ func TestResolveGroupMembersForUpdate(t *testing.T) {
 
 			assertResolvedGroupMembers(t, test.configMembers, test.planMembers, test.stateMembers, test.want)
 		})
+	}
+}
+
+func TestFilterInactivePendingGroupMembers(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		desiredMembers []types.String
+		currentMembers []types.String
+		users          []api.User
+		wantMembers    []types.String
+		wantSkipped    []string
+	}{
+		"skips inactive pending members": {
+			desiredMembers: stringValues("active-user", "inactive-user"),
+			users: []api.User{
+				{ID: "active-user", Active: true},
+				{ID: "inactive-user", Active: false},
+			},
+			wantMembers: stringValues("active-user"),
+			wantSkipped: []string{"inactive-user"},
+		},
+		"preserves existing inactive members": {
+			desiredMembers: stringValues("inactive-user"),
+			currentMembers: stringValues("inactive-user"),
+			users: []api.User{
+				{ID: "inactive-user", Active: false},
+			},
+			wantMembers: stringValues("inactive-user"),
+		},
+		"does not skip deleted or unknown users": {
+			desiredMembers: stringValues("deleted-user", "missing-user"),
+			users: []api.User{
+				{ID: "deleted-user", Active: false, Deleted: true},
+			},
+			wantMembers: stringValues("deleted-user", "missing-user"),
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assertFilteredInactivePendingGroupMembers(
+				t,
+				test.desiredMembers,
+				test.currentMembers,
+				test.users,
+				test.wantMembers,
+				test.wantSkipped,
+			)
+		})
+	}
+}
+
+func TestHasPendingGroupMembers(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		desiredMembers []types.String
+		currentMembers []types.String
+		want           bool
+	}{
+		"returns false when desired list is empty": {
+			want: false,
+		},
+		"returns false when all desired members already exist": {
+			desiredMembers: stringValues("member-1"),
+			currentMembers: stringValues("member-1", "member-2"),
+			want:           false,
+		},
+		"returns true when at least one desired member is missing": {
+			desiredMembers: stringValues("member-1", "member-3"),
+			currentMembers: stringValues("member-1", "member-2"),
+			want:           true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := hasPendingGroupMembers(test.desiredMembers, test.currentMembers)
+			if got != test.want {
+				t.Fatalf("expected %t, got %t", test.want, got)
+			}
+		})
+	}
+}
+
+func assertFilteredInactivePendingGroupMembers(
+	t *testing.T,
+	desiredMembers []types.String,
+	currentMembers []types.String,
+	users []api.User,
+	wantMembers []types.String,
+	wantSkipped []string,
+) {
+	t.Helper()
+
+	gotMembers, gotSkipped := filterInactivePendingGroupMembers(
+		desiredMembers,
+		currentMembers,
+		users,
+	)
+
+	slices.SortFunc(gotMembers, compareStringValues)
+	slices.SortFunc(wantMembers, compareStringValues)
+
+	if len(gotMembers) != len(wantMembers) {
+		t.Fatalf("expected %d members, got %d: %#v", len(wantMembers), len(gotMembers), gotMembers)
+	}
+
+	for i := range wantMembers {
+		if gotMembers[i] != wantMembers[i] {
+			t.Fatalf("member %d: expected %#v, got %#v", i, wantMembers[i], gotMembers[i])
+		}
+	}
+
+	if strings.Join(gotSkipped, ",") != strings.Join(wantSkipped, ",") {
+		t.Fatalf("expected skipped %v, got %v", wantSkipped, gotSkipped)
 	}
 }
 

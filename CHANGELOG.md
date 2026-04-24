@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.7.0 — 2026-04-24
+
+### ✨ Added
+
+- `passbolt_group.ignore_inactive_members` to skip inactive regular members with a warning and retry them on later applies after activation.
+
 ## v1.6.0 — 2026-04-22
 
 ### ✨ Added

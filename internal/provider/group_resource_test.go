@@ -135,6 +135,67 @@ func TestAccPassboltGroup_addMemberToSharedGroupCanDecryptSecret(t *testing.T) {
 	})
 }
 
+func TestAccPassboltGroup_ignoreInactiveMembers(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := testAccCurrentUserID(t, baseURL, privateKey, passphrase)
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group-ignore-inactive", suffix)
+	email := testAccEmail("inactive.member", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testGroupIgnoreInactiveMembersConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					groupName,
+				),
+				ExpectNonEmptyPlan: true,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+					resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+					resource.TestCheckResourceAttr("passbolt_group.test", "ignore_inactive_members", "true"),
+					resource.TestCheckResourceAttr("passbolt_user.member", "username", email),
+					testCheckGroupDoesNotContainMember(
+						baseURL,
+						privateKey,
+						passphrase,
+						"passbolt_group.test",
+						"passbolt_user.member",
+					),
+				),
+			},
+			{
+				Config: testGroupIgnoreInactiveMembersConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					groupName,
+				),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
 func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, managerID string) string {
 	t.Helper()
 
@@ -555,6 +616,32 @@ resource "passbolt_password" "shared" {
 `, baseURL, privateKey, passphrase, groupName, managerID, members, passwordName)
 }
 
+func testGroupIgnoreInactiveMembersConfig(baseURL, privateKey, passphrase, managerID, email, groupName string) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_user" "member" {
+  username   = "%s"
+  first_name = "Pending"
+  last_name  = "Member"
+  role       = "user"
+}
+
+resource "passbolt_group" "test" {
+  name                    = "%s"
+  managers                = ["%s"]
+  members                 = [passbolt_user.member.id]
+  ignore_inactive_members = true
+}
+`, baseURL, privateKey, passphrase, email, groupName, managerID)
+}
+
 func testCheckSharedPasswordDecryptableAsMember(
 	baseURL,
 	memberPrivateKey,
@@ -600,6 +687,57 @@ func testCheckSharedPasswordDecryptableAsMember(
 		}
 		if password != "shared-secret" {
 			return fmt.Errorf("expected shared resource password %q, got %q", "shared-secret", password)
+		}
+
+		return nil
+	}
+}
+
+func testCheckGroupDoesNotContainMember(
+	baseURL,
+	privateKey,
+	passphrase,
+	groupResourceName,
+	userResourceName string,
+) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		groupResource, ok := state.RootModule().Resources[groupResourceName]
+		if !ok {
+			return fmt.Errorf("%s not found in Terraform state", groupResourceName)
+		}
+
+		userResource, ok := state.RootModule().Resources[userResourceName]
+		if !ok {
+			return fmt.Errorf("%s not found in Terraform state", userResourceName)
+		}
+
+		groupID := groupResource.Primary.ID
+		userID := userResource.Primary.ID
+		if groupID == "" || userID == "" {
+			return fmt.Errorf("group id %q or user id %q is empty", groupID, userID)
+		}
+
+		ctx := context.Background()
+		client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+		if err != nil {
+			return fmt.Errorf("failed to create Passbolt API client: %w", err)
+		}
+		if err := client.Login(ctx); err != nil {
+			return fmt.Errorf("failed to log in to Passbolt API: %w", err)
+		}
+		defer func() {
+			_ = client.Logout(ctx)
+		}()
+
+		_, memberships, err := helper.GetGroup(ctx, client, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get Passbolt group %s: %w", groupID, err)
+		}
+
+		for _, membership := range memberships {
+			if membership.UserID == userID {
+				return fmt.Errorf("expected inactive user %s to be skipped from group %s", userID, groupID)
+			}
 		}
 
 		return nil
