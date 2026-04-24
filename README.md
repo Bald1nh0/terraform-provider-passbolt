@@ -278,9 +278,10 @@ resource "passbolt_group" "developers" {
 
 ```hcl
 resource "passbolt_group" "example" {
-  name     = "Terraform Group Example"
-  managers = ["2a61bc5d-bbbb-aaaa-cccc-123456789abc"] # Must be active Passbolt user UUID
-  members  = ["3b72cd6e-cccc-bbbb-dddd-23456789abcd"] # Optional regular group members
+  name                    = "Terraform Group Example"
+  managers                = ["2a61bc5d-bbbb-aaaa-cccc-123456789abc"] # Must be active Passbolt user UUID
+  members                 = ["3b72cd6e-cccc-bbbb-dddd-23456789abcd"] # Optional regular group members
+  ignore_inactive_members = true
 }
 ```
 
@@ -288,7 +289,9 @@ Passbolt requires at least one group manager. Regular members can be managed wit
 
 Group memberships require existing active Passbolt users. A user created by `passbolt_user` may not be available for `passbolt_group` membership in the same Terraform apply; create and activate the user first, then reference it from `passbolt_group` in a later apply.
 
-You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt.
+If you already know a regular member UUID and want Terraform to keep retrying that membership after the invitation is accepted, set `ignore_inactive_members = true`. Inactive regular members that are already visible to the Passbolt API are skipped with a warning and retried on later applies. Terraform will continue to show that membership as a pending change until the user becomes active. Unknown or deleted user IDs still fail normally. Group managers remain strict and must already be active.
+
+You can look up active user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt. Note that `data "passbolt_user"` stays strict and returns only active, non-deleted users.
 
 ---
 

@@ -1,5 +1,5 @@
 BINARY_NAME=terraform-provider-passbolt
-VERSION=1.6.0
+VERSION=1.7.0
 OS=$(shell uname | tr A-Z a-z)
 ARCH=amd64
 PLUGIN_NAMESPACE=bald1nh0

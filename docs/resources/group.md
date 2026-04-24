@@ -49,6 +49,7 @@ resource "passbolt_group" "example" {
 
 ### Optional
 
+- `ignore_inactive_members` (Boolean) When true, inactive regular members that are not yet part of the group are skipped with a warning instead of failing the apply. Terraform will continue to plan those memberships until the users become active. Group managers remain strict and must already exist and be active in Passbolt.
 - `members` (Set of String) List of user IDs to assign as regular group members. Users must already exist and be active in Passbolt.
 
 ### Read-Only
