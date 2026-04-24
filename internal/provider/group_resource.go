@@ -221,7 +221,7 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	_, memberships, err := helper.GetGroup(ctx, r.client.Client, state.ID.ValueString())
+	currentName, memberships, err := helper.GetGroup(ctx, r.client.Client, state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading group memberships", err.Error())
 
@@ -243,11 +243,13 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	ops := buildGroupMembershipOps(planManagers, appliedMembers, stateManagers, stateMembers)
 
-	err = updateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
-	if err != nil {
-		resp.Diagnostics.AddError("Error updating group", err.Error())
+	if shouldUpdateGroup(plan.Name.ValueString(), currentName, ops) {
+		err = updateGroup(ctx, r.client.Client, state.ID.ValueString(), plan.Name.ValueString(), ops)
+		if err != nil {
+			resp.Diagnostics.AddError("Error updating group", err.Error())
 
-		return
+			return
+		}
 	}
 
 	plan.ID = state.ID
@@ -491,6 +493,10 @@ func buildGroupMembershipOps(
 	ops = appendRemovedGroupUsers(ops, userIDs, desired, current)
 
 	return ops
+}
+
+func shouldUpdateGroup(desiredName, currentName string, ops []helper.GroupMembershipOperation) bool {
+	return desiredName != currentName || len(ops) > 0
 }
 
 func appendMembershipRoleChanges(

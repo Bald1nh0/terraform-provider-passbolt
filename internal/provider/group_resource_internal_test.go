@@ -391,6 +391,47 @@ func TestBuildGroupMembershipOps(t *testing.T) {
 	}
 }
 
+func TestShouldUpdateGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		desiredName string
+		currentName string
+		ops         []helper.GroupMembershipOperation
+		want        bool
+	}{
+		"returns false for local-only flag changes": {
+			desiredName: "group-a",
+			currentName: "group-a",
+			want:        false,
+		},
+		"returns true when name changes": {
+			desiredName: "group-b",
+			currentName: "group-a",
+			want:        true,
+		},
+		"returns true when membership ops exist": {
+			desiredName: "group-a",
+			currentName: "group-a",
+			ops: []helper.GroupMembershipOperation{
+				{UserID: "member-1", IsGroupManager: false},
+			},
+			want: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := shouldUpdateGroup(test.desiredName, test.currentName, test.ops)
+			if got != test.want {
+				t.Fatalf("expected %t, got %t", test.want, got)
+			}
+		})
+	}
+}
+
 func stringValues(values ...string) []types.String {
 	result := make([]types.String, 0, len(values))
 	for _, value := range values {
