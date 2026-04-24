@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -62,6 +63,59 @@ func TestAccPassboltGroup_withMembers(t *testing.T) {
 			testStepCreateGroupWithMembers(baseURL, privateKey, passphrase, managerID, memberID, groupName),
 			testStepNoDriftGroupWithMembers(baseURL, privateKey, passphrase, managerID, memberID, groupName),
 			testStepUpdateGroupWithMembers(baseURL, privateKey, passphrase, managerID, memberID, updatedGroupName),
+		},
+	})
+}
+
+func TestAccPassboltGroup_roleChanges(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+		"PASSBOLT_MANAGER_ID",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := os.Getenv("PASSBOLT_MANAGER_ID")
+	memberID := testAccGroupMemberID(t, baseURL, privateKey, passphrase, managerID)
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group-role-change", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			testStepGroupRoleChange(
+				baseURL,
+				privateKey,
+				passphrase,
+				groupName,
+				[]string{managerID},
+				[]string{memberID},
+				map[string]bool{managerID: true, memberID: false},
+			),
+			testStepGroupRoleChange(
+				baseURL,
+				privateKey,
+				passphrase,
+				groupName,
+				[]string{managerID, memberID},
+				nil,
+				map[string]bool{managerID: true, memberID: true},
+			),
+			testStepGroupRoleChange(
+				baseURL,
+				privateKey,
+				passphrase,
+				groupName,
+				[]string{managerID},
+				[]string{memberID},
+				map[string]bool{managerID: true, memberID: false},
+			),
 		},
 	})
 }
@@ -436,6 +490,32 @@ func testStepUpdateGroupWithMembers(
 	}
 }
 
+func testStepGroupRoleChange(
+	baseURL,
+	privateKey,
+	passphrase,
+	groupName string,
+	managers,
+	members []string,
+	expectedRoles map[string]bool,
+) resource.TestStep {
+	return resource.TestStep{
+		Config: testGroupRoleChangeConfig(baseURL, privateKey, passphrase, groupName, managers, members),
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+			resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", fmt.Sprintf("%d", len(managers))),
+			resource.TestCheckResourceAttr("passbolt_group.test", "members.#", fmt.Sprintf("%d", len(members))),
+			testCheckGroupMembershipRoles(
+				baseURL,
+				privateKey,
+				passphrase,
+				"passbolt_group.test",
+				expectedRoles,
+			),
+		),
+	}
+}
+
 func testStepCreateSharedGroupPassword(
 	baseURL,
 	privateKey,
@@ -577,6 +657,40 @@ resource "passbolt_group" "test" {
 `, baseURL, privateKey, passphrase, groupName, managerID, memberID)
 }
 
+func testGroupRoleChangeConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	groupName string,
+	managers,
+	members []string,
+) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_group" "test" {
+  name     = "%s"
+  managers = %s
+  members  = %s
+}
+`, baseURL, privateKey, passphrase, groupName, hclStringList(managers), hclStringList(members))
+}
+
+func hclStringList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, fmt.Sprintf("%q", value))
+	}
+
+	return fmt.Sprintf("[%s]", strings.Join(quoted, ", "))
+}
+
 func testGroupWithSharedPasswordConfig(
 	baseURL,
 	privateKey,
@@ -687,6 +801,65 @@ func testCheckSharedPasswordDecryptableAsMember(
 		}
 		if password != "shared-secret" {
 			return fmt.Errorf("expected shared resource password %q, got %q", "shared-secret", password)
+		}
+
+		return nil
+	}
+}
+
+func testCheckGroupMembershipRoles(
+	baseURL,
+	privateKey,
+	passphrase,
+	groupResourceName string,
+	expectedRoles map[string]bool,
+) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		groupResource, ok := state.RootModule().Resources[groupResourceName]
+		if !ok {
+			return fmt.Errorf("%s not found in Terraform state", groupResourceName)
+		}
+
+		groupID := groupResource.Primary.ID
+		if groupID == "" {
+			return fmt.Errorf("%s id is empty", groupResourceName)
+		}
+
+		ctx := context.Background()
+		client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+		if err != nil {
+			return fmt.Errorf("failed to create Passbolt API client: %w", err)
+		}
+		if err := client.Login(ctx); err != nil {
+			return fmt.Errorf("failed to log in to Passbolt API: %w", err)
+		}
+		defer func() {
+			_ = client.Logout(ctx)
+		}()
+
+		_, memberships, err := helper.GetGroup(ctx, client, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get Passbolt group %s: %w", groupID, err)
+		}
+
+		actualRoles := make(map[string]bool, len(memberships))
+		for _, membership := range memberships {
+			actualRoles[membership.UserID] = membership.IsGroupManager
+		}
+
+		for userID, expectedManager := range expectedRoles {
+			actualManager, ok := actualRoles[userID]
+			if !ok {
+				return fmt.Errorf("expected user %s in group %s", userID, groupID)
+			}
+			if actualManager != expectedManager {
+				return fmt.Errorf(
+					"expected user %s manager role to be %t, got %t",
+					userID,
+					expectedManager,
+					actualManager,
+				)
+			}
 		}
 
 		return nil

@@ -228,13 +228,14 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	stateManagers, stateMembers := splitGroupMemberships(memberships, true)
+	currentGroupUsers := groupUserValues(stateManagers, stateMembers)
 
 	appliedMembers := resolveGroupMembersForApply(
 		ctx,
 		r.client.Client,
 		plan.IgnoreInactiveMembers.ValueBool(),
 		desiredMembers,
-		stateMembers,
+		currentGroupUsers,
 		&resp.Diagnostics,
 	)
 	if resp.Diagnostics.HasError() {
@@ -578,6 +579,20 @@ func groupUserRoleMap(managers, members []types.String) map[string]bool {
 	}
 
 	return roles
+}
+
+func groupUserValues(userGroups ...[]types.String) []types.String {
+	total := 0
+	for _, users := range userGroups {
+		total += len(users)
+	}
+
+	result := make([]types.String, 0, total)
+	for _, users := range userGroups {
+		result = append(result, users...)
+	}
+
+	return result
 }
 
 func groupUserSet(users []types.String) map[string]bool {

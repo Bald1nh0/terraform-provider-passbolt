@@ -183,6 +183,14 @@ func TestFilterInactivePendingGroupMembers(t *testing.T) {
 			},
 			wantMembers: stringValues("inactive-user"),
 		},
+		"preserves inactive current managers during demotion": {
+			desiredMembers: stringValues("inactive-manager"),
+			currentMembers: groupUserValues(stringValues("inactive-manager"), nil),
+			users: []api.User{
+				{ID: "inactive-manager", Active: false},
+			},
+			wantMembers: stringValues("inactive-manager"),
+		},
 		"does not skip deleted or unknown users": {
 			desiredMembers: stringValues("deleted-user", "missing-user"),
 			users: []api.User{
