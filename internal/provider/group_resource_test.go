@@ -250,6 +250,158 @@ func TestAccPassboltGroup_ignoreInactiveMembers(t *testing.T) {
 	})
 }
 
+func TestAccPassboltGroup_ignoreInactiveMembersOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := testAccCurrentUserID(t, baseURL, privateKey, passphrase)
+	suffix := testAccSuffix()
+	groupName := testAccName("test-group-ignore-inactive-update", suffix)
+	email := testAccEmail("inactive.update.member", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testGroupIgnoreInactiveMembersUpdateBaseConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					groupName,
+				),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+					resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+					resource.TestCheckResourceAttr("passbolt_group.test", "members.#", "0"),
+					resource.TestCheckResourceAttr("passbolt_group.test", "ignore_inactive_members", "true"),
+					resource.TestCheckResourceAttr("passbolt_user.member", "username", email),
+				),
+			},
+			{
+				Config: testGroupIgnoreInactiveMembersUpdateConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					groupName,
+				),
+				ExpectNonEmptyPlan: true,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_group.test", "name", groupName),
+					resource.TestCheckResourceAttr("passbolt_group.test", "managers.#", "1"),
+					resource.TestCheckResourceAttr("passbolt_group.test", "ignore_inactive_members", "true"),
+					resource.TestCheckResourceAttr("passbolt_user.member", "username", email),
+					testCheckGroupDoesNotContainMember(
+						baseURL,
+						privateKey,
+						passphrase,
+						"passbolt_group.test",
+						"passbolt_user.member",
+					),
+				),
+			},
+			{
+				Config: testGroupIgnoreInactiveMembersUpdateConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					groupName,
+				),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
+func TestAccPassboltGroup_ignoreInactiveMembersAcrossGroups(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(
+		t,
+		"PASSBOLT_BASE_URL",
+		"PASSBOLT_PRIVATE_KEY",
+		"PASSBOLT_PASSPHRASE",
+	)
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := testAccCurrentUserID(t, baseURL, privateKey, passphrase)
+	suffix := testAccSuffix()
+	firstGroupName := testAccName("test-group-ignore-inactive-a", suffix)
+	secondGroupName := testAccName("test-group-ignore-inactive-b", suffix)
+	email := testAccEmail("inactive.multi.member", suffix)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testGroupIgnoreInactiveMembersAcrossGroupsConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					firstGroupName,
+					secondGroupName,
+				),
+				ExpectNonEmptyPlan: true,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_group.first", "name", firstGroupName),
+					resource.TestCheckResourceAttr("passbolt_group.first", "managers.#", "1"),
+					resource.TestCheckResourceAttr("passbolt_group.first", "ignore_inactive_members", "true"),
+					resource.TestCheckResourceAttr("passbolt_group.second", "name", secondGroupName),
+					resource.TestCheckResourceAttr("passbolt_group.second", "managers.#", "1"),
+					resource.TestCheckResourceAttr("passbolt_group.second", "ignore_inactive_members", "true"),
+					resource.TestCheckResourceAttr("passbolt_user.member", "username", email),
+					testCheckGroupDoesNotContainMember(
+						baseURL,
+						privateKey,
+						passphrase,
+						"passbolt_group.first",
+						"passbolt_user.member",
+					),
+					testCheckGroupDoesNotContainMember(
+						baseURL,
+						privateKey,
+						passphrase,
+						"passbolt_group.second",
+						"passbolt_user.member",
+					),
+				),
+			},
+			{
+				Config: testGroupIgnoreInactiveMembersAcrossGroupsConfig(
+					baseURL,
+					privateKey,
+					passphrase,
+					managerID,
+					email,
+					firstGroupName,
+					secondGroupName,
+				),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
 func testAccGroupMemberID(t *testing.T, baseURL, privateKey, passphrase, managerID string) string {
 	t.Helper()
 
@@ -754,6 +906,112 @@ resource "passbolt_group" "test" {
   ignore_inactive_members = true
 }
 `, baseURL, privateKey, passphrase, email, groupName, managerID)
+}
+
+func testGroupIgnoreInactiveMembersUpdateBaseConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	email,
+	groupName string,
+) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_user" "member" {
+  username   = "%s"
+  first_name = "Pending"
+  last_name  = "Member"
+  role       = "user"
+}
+
+resource "passbolt_group" "test" {
+  name                    = "%s"
+  managers                = ["%s"]
+  ignore_inactive_members = true
+}
+`, baseURL, privateKey, passphrase, email, groupName, managerID)
+}
+
+func testGroupIgnoreInactiveMembersUpdateConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	email,
+	groupName string,
+) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_user" "member" {
+  username   = "%s"
+  first_name = "Pending"
+  last_name  = "Member"
+  role       = "user"
+}
+
+resource "passbolt_group" "test" {
+  name                    = "%s"
+  managers                = ["%s"]
+  members                 = [passbolt_user.member.id]
+  ignore_inactive_members = true
+}
+`, baseURL, privateKey, passphrase, email, groupName, managerID)
+}
+
+func testGroupIgnoreInactiveMembersAcrossGroupsConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	email,
+	firstGroupName,
+	secondGroupName string,
+) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_user" "member" {
+  username   = "%s"
+  first_name = "Pending"
+  last_name  = "Member"
+  role       = "user"
+}
+
+resource "passbolt_group" "first" {
+  name                    = "%s"
+  managers                = ["%s"]
+  members                 = [passbolt_user.member.id]
+  ignore_inactive_members = true
+}
+
+resource "passbolt_group" "second" {
+  name                    = "%s"
+  managers                = ["%s"]
+  members                 = [passbolt_user.member.id]
+  ignore_inactive_members = true
+}
+`, baseURL, privateKey, passphrase, email, firstGroupName, managerID, secondGroupName, managerID)
 }
 
 func testCheckSharedPasswordDecryptableAsMember(
