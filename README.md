@@ -45,7 +45,7 @@ provider "passbolt" {
 - Manage Passbolt users, groups, folders, passwords, and folder permissions with Terraform.
 - Support Passbolt CE and PRO deployments with the same provider.
 - Resolve `folder_parent` by unique folder name, folder UUID, or absolute path such as `/application_A/prod`.
-- Use exact `data.passbolt_user` lookups that return only active, non-deleted users.
+- Use exact `data.passbolt_user` lookups that return active users by default, with opt-in inactive lookups.
 - Import major resources into Terraform state for gradual adoption.
 - Integrate external secrets from AWS SSM Parameter Store or Secrets Manager.
 
@@ -291,7 +291,7 @@ Group memberships require existing active Passbolt users. A user created by `pas
 
 If you already know a regular member UUID and want Terraform to keep retrying that membership after the invitation is accepted, set `ignore_inactive_members = true`. Inactive regular members that are already visible to the Passbolt API are skipped with a warning and retried on later applies. Terraform will continue to show that membership as a pending change until the user becomes active. Unknown or deleted user IDs still fail normally. Group managers remain strict and must already be active.
 
-You can look up active user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt. Note that `data "passbolt_user"` stays strict and returns only active, non-deleted users.
+You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt. Note that `data "passbolt_user"` stays strict by default and returns only active, non-deleted users. Set `include_inactive = true` only when you intentionally need an inactive regular member UUID for a flow such as `ignore_inactive_members`.
 
 ---
 
@@ -302,15 +302,22 @@ data "passbolt_user" "admin" {
   username = "admin@example.com"
 }
 
+data "passbolt_user" "pending_member" {
+  username         = "pending.member@example.com"
+  include_inactive = true
+}
+
 output "user_id" {
   value = data.passbolt_user.admin.id
 }
 ```
 
 - Looks up users by **exact** email match
-- Returns only **active, non-deleted** Passbolt users
-- Returns `user id`, `role`, `first_name`, and `last_name`
+- Returns only **active, non-deleted** Passbolt users by default
+- Can return inactive, non-deleted users when `include_inactive = true`
+- Returns `user id`, `active`, `role`, `first_name`, and `last_name`
 - Can be used to assign managers in `passbolt_group`, or resolve dependencies
+- Inactive users should only be used where the target resource explicitly supports them, for example regular `passbolt_group.members` with `ignore_inactive_members = true`
 
 ## Data Source: passbolt_group
 
