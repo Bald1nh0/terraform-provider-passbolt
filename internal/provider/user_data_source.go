@@ -28,11 +28,13 @@ type userDataSource struct {
 }
 
 type userDataSourceModel struct {
-	ID        types.String `tfsdk:"id"`
-	Username  types.String `tfsdk:"username"`
-	Role      types.String `tfsdk:"role"`
-	FirstName types.String `tfsdk:"first_name"`
-	LastName  types.String `tfsdk:"last_name"`
+	ID              types.String `tfsdk:"id"`
+	Username        types.String `tfsdk:"username"`
+	IncludeInactive types.Bool   `tfsdk:"include_inactive"`
+	Active          types.Bool   `tfsdk:"active"`
+	Role            types.String `tfsdk:"role"`
+	FirstName       types.String `tfsdk:"first_name"`
+	LastName        types.String `tfsdk:"last_name"`
 }
 
 func (d *userDataSource) Configure(
@@ -62,12 +64,24 @@ func (d *userDataSource) Metadata(_ context.Context,
 
 func (d *userDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Looks up an existing active, non-deleted Passbolt user by exact username (email address).",
+		Description: "Looks up an existing non-deleted Passbolt user by exact username (email address). " +
+			"By default, only active users are returned.",
 		Attributes: map[string]schema.Attribute{
 			"username": schema.StringAttribute{
 				Required: true,
 				Description: "Exact username (email address) to look up. " +
-					"The user must already be active and not deleted in Passbolt.",
+					"The user must already be active unless include_inactive is enabled.",
+			},
+			"include_inactive": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "When true, allows returning an inactive, non-deleted Passbolt user. " +
+					"Inactive users are useful only in flows that explicitly support them, such as " +
+					"regular passbolt_group members with ignore_inactive_members enabled.",
+			},
+			"active": schema.BoolAttribute{
+				Computed:    true,
+				Description: "Whether the Passbolt user has completed activation.",
 			},
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -107,7 +121,8 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	user, err := activeUserByUsername(users, config.Username.ValueString())
+	includeInactive := config.IncludeInactive.ValueBool()
+	user, err := userByUsername(users, config.Username.ValueString(), includeInactive)
 	if err != nil {
 		resp.Diagnostics.AddError("User not found", err.Error())
 
@@ -115,49 +130,83 @@ func (d *userDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 	}
 
 	data := userDataSourceModel{
-		ID:        types.StringValue(user.ID),
-		Username:  types.StringValue(user.Username),
-		Role:      types.StringValue(userRoleName(user)),
-		FirstName: types.StringValue(userFirstName(user)),
-		LastName:  types.StringValue(userLastName(user)),
+		ID:              types.StringValue(user.ID),
+		Username:        types.StringValue(user.Username),
+		IncludeInactive: types.BoolValue(includeInactive),
+		Active:          types.BoolValue(user.Active),
+		Role:            types.StringValue(userRoleName(user)),
+		FirstName:       types.StringValue(userFirstName(user)),
+		LastName:        types.StringValue(userLastName(user)),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func activeUserByUsername(users []api.User, username string) (*api.User, error) {
-	var sawDeleted bool
-	var sawInactive bool
+type userLookupResult struct {
+	active      *api.User
+	inactive    *api.User
+	sawDeleted  bool
+	sawInactive bool
+}
 
+func userByUsername(users []api.User, username string, includeInactive bool) (*api.User, error) {
+	result := findUserByUsername(users, username, includeInactive)
+	if result.active != nil {
+		return result.active, nil
+	}
+	if includeInactive && result.inactive != nil {
+		return result.inactive, nil
+	}
+
+	return nil, userLookupError(username, includeInactive, result)
+}
+
+func findUserByUsername(users []api.User, username string, includeInactive bool) userLookupResult {
+	var result userLookupResult
 	for _, user := range users {
 		if !strings.EqualFold(user.Username, username) {
 			continue
 		}
 
 		if user.Deleted {
-			sawDeleted = true
+			result.sawDeleted = true
 
 			continue
 		}
 
 		if !user.Active {
-			sawInactive = true
+			result.sawInactive = true
+			if includeInactive && result.inactive == nil {
+				candidate := user
+				result.inactive = &candidate
+			}
 
 			continue
 		}
 
-		return &user, nil
+		candidate := user
+		result.active = &candidate
+
+		return result
 	}
 
-	if sawDeleted {
-		return nil, fmt.Errorf("user %s exists in Passbolt but is deleted", username)
+	return result
+}
+
+func userLookupError(username string, includeInactive bool, result userLookupResult) error {
+	if result.sawDeleted {
+		return fmt.Errorf("user %s exists in Passbolt but is deleted", username)
 	}
 
-	if sawInactive {
-		return nil, fmt.Errorf("user %s exists but is not active in Passbolt", username)
+	if result.sawInactive {
+		return fmt.Errorf("user %s exists but is not active in Passbolt", username)
 	}
 
-	return nil, fmt.Errorf("could not find active Passbolt user with username: %s", username)
+	if includeInactive {
+		return fmt.Errorf("could not find non-deleted Passbolt user with username: %s", username)
+	}
+
+	return fmt.Errorf("could not find active Passbolt user with username: %s", username)
 }
 
 func userRoleName(user *api.User) string {

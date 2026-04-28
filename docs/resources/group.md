@@ -20,7 +20,7 @@ provider "passbolt" {
 }
 
 # Example active user already registered in Passbolt (must be active!)
-# You can retrieve this UUID manually or via data source (future).
+# You can retrieve this UUID manually or via data.passbolt_user.
 variable "manager_id" {
   description = "The UUID of an existing active Passbolt user"
   type        = string

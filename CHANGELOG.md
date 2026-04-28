@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.8.0 — 2026-04-28
+
+### ✨ Added
+
+- `data.passbolt_user.include_inactive` to opt into resolving inactive, non-deleted users by exact username.
+- `data.passbolt_user.active` to expose whether the resolved user has completed activation.
+
 ## v1.7.0 — 2026-04-24
 
 ### ✨ Added
