@@ -25,7 +25,7 @@ resource "passbolt_user" "engineer" {
 
 ~> A newly created user may not be available for `passbolt_group` membership in the same apply. Wait until the invitation is accepted and the user is active.
 
-If you already know the invited user's UUID, or resolve it with `data.passbolt_user` and `include_inactive = true`, you can enable `ignore_inactive_members = true` on `passbolt_group` to keep retrying regular group membership after activation. This skips inactive regular members that are already visible to the Passbolt API with a warning and retries them on later applies. Terraform will continue to show the pending membership change until the user becomes active. Unknown or deleted user IDs still fail normally. Group managers still must already be active.
+If you already know the invited user's UUID, or resolve it with `data.passbolt_user` and `include_inactive = true`, you can enable `ignore_inactive_members = true` on `passbolt_group` to keep retrying regular group membership after activation. `include_inactive` only lets the data source return the inactive user's UUID; `ignore_inactive_members` is what skips that inactive regular member during group apply. Terraform will continue to show the pending membership change until the user becomes active. Unknown or deleted user IDs still fail normally. Group managers still must already be active.
 
 ## Step 2: Add the Active User to a Group and Shared Folder
 

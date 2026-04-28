@@ -20,7 +20,7 @@ description: |-
 {{- end }}
 
 {{- if eq .Name "passbolt_user" }}
--> This data source returns only exact, active, non-deleted users by default. Set `include_inactive = true` only when you intentionally need an inactive regular member UUID for flows that support inactive users.
+-> This data source returns only exact, active, non-deleted users by default. Set `include_inactive = true` only when you intentionally need an inactive user's UUID to reach another resource. It does not add inactive users to groups by itself; `passbolt_group.ignore_inactive_members` is what skips inactive regular members during group apply.
 {{- end }}
 {{- if eq .Name "passbolt_password" }}
 !> The returned password value is sensitive and can flow into downstream resources or outputs. Terraform will still persist the decrypted value in state, so expose it only where strictly necessary.

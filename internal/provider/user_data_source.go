@@ -76,8 +76,9 @@ func (d *userDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, r
 				Optional: true,
 				Computed: true,
 				Description: "When true, allows returning an inactive, non-deleted Passbolt user. " +
-					"Inactive users are useful only in flows that explicitly support them, such as " +
-					"regular passbolt_group members with ignore_inactive_members enabled.",
+					"This only affects the data source lookup. To skip inactive users during group " +
+					"membership apply, use the returned ID as a regular passbolt_group member with " +
+					"ignore_inactive_members enabled.",
 			},
 			"active": schema.BoolAttribute{
 				Computed:    true,

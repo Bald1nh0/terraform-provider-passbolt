@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.8.1 — 2026-04-28
+
+### 📝 Documentation
+
+- Clarified that `data.passbolt_user.include_inactive` only controls user lookup, while `passbolt_group.ignore_inactive_members` controls skipping inactive regular members during group apply.
+
 ## v1.8.0 — 2026-04-28
 
 ### ✨ Added

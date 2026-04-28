@@ -291,7 +291,7 @@ Group memberships require existing active Passbolt users. A user created by `pas
 
 If you already know a regular member UUID and want Terraform to keep retrying that membership after the invitation is accepted, set `ignore_inactive_members = true`. Inactive regular members that are already visible to the Passbolt API are skipped with a warning and retried on later applies. Terraform will continue to show that membership as a pending change until the user becomes active. Unknown or deleted user IDs still fail normally. Group managers remain strict and must already be active.
 
-You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt. Note that `data "passbolt_user"` stays strict by default and returns only active, non-deleted users. Set `include_inactive = true` only when you intentionally need an inactive regular member UUID for a flow such as `ignore_inactive_members`.
+You can look up user UUIDs using `data "passbolt_user"` or manually fetch them from Passbolt. Note that `data "passbolt_user"` stays strict by default and returns only active, non-deleted users. Set `include_inactive = true` only when you intentionally need an inactive user's UUID to reach another resource. It does not add inactive users to groups by itself; `passbolt_group.ignore_inactive_members` is what skips inactive regular members during group apply.
 
 ---
 
@@ -317,7 +317,7 @@ output "user_id" {
 - Can return inactive, non-deleted users when `include_inactive = true`
 - Returns `user id`, `active`, `role`, `first_name`, and `last_name`
 - Can be used to assign managers in `passbolt_group`, or resolve dependencies
-- Inactive users should only be used where the target resource explicitly supports them, for example regular `passbolt_group.members` with `ignore_inactive_members = true`
+- `include_inactive` only affects lookup; inactive users should only be used where the target resource explicitly supports them, for example regular `passbolt_group.members` with `ignore_inactive_members = true`
 
 ## Data Source: passbolt_group
 
