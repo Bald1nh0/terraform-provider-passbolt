@@ -3,12 +3,12 @@
 page_title: "passbolt_password Data Source - passbolt"
 subcategory: "Secrets"
 description: |-
-  Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Returns all metadata and the decrypted secret value. The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.
+  Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Supports Passbolt v4 and v5 encrypted metadata resources. Returns all metadata and the decrypted secret value. The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.
 ---
 
 # passbolt_password (Data Source)
 
-Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Returns all metadata and the decrypted secret value. The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.
+Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation or outputting secrets to other modules. Supports Passbolt v4 and v5 encrypted metadata resources. Returns all metadata and the decrypted secret value. The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.
 
 ## Example Usage
 

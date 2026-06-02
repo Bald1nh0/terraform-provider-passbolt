@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.9.0 — 2026-06-02
+
+### ✨ Added
+
+- Added Passbolt v5 encrypted metadata support for `passbolt_password` reads, imports, data source lookups, and updates by upgrading `github.com/passbolt/go-passbolt` to `v0.8.0`.
+- New `passbolt_password` resources now follow the Passbolt server's default resource metadata type, creating v5 resources when the server default is encrypted metadata.
+
+### 🛠 Improved
+
+- Replaced the provider's legacy resource-type update switch with the schema-aware `go-passbolt` generic update flow, allowing upgraded `v5-default` resources to be refreshed instead of failing with `Unknown ResourceType: v5-default`.
+
 ## v1.8.1 — 2026-04-28
 
 ### 📝 Documentation

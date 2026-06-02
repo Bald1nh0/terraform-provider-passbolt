@@ -75,8 +75,9 @@ func (d *passwordDataSource) Metadata(
 func (d *passwordDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Fetch a password/secret from Passbolt by its ID. Useful for lookups in cross-team automation " +
-			"or outputting secrets to other modules. Returns all metadata and the decrypted secret value. " +
-			"The decrypted value remains sensitive in Terraform output, but Terraform will still persist it in state.",
+			"or outputting secrets to other modules. Supports Passbolt v4 and v5 encrypted metadata resources. " +
+			"Returns all metadata and the decrypted secret value. The decrypted value remains sensitive in Terraform " +
+			"output, but Terraform will still persist it in state.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Required:    true,
