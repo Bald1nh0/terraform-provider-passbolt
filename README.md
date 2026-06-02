@@ -158,6 +158,8 @@ resource "passbolt_folder" "application_a_prod_sub_folder_3" {
 
 Creates a new password in Passbolt and can share it with groups.
 
+Supports legacy v4 resources and v5 encrypted metadata resources. New resources follow the Passbolt server's default resource metadata type: if the server default is encrypted metadata, the provider creates `v5-default` password resources; if the server default is legacy metadata, it creates v4 resources.
+
 `passbolt_password` supports two secret flows:
 
 - `password`: legacy flow, masked in CLI output but persisted in Terraform state.

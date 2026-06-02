@@ -505,7 +505,7 @@ func testAccCurrentUserID(t *testing.T, baseURL, privateKey, passphrase string) 
 		_ = client.Logout(ctx)
 	}()
 
-	msg, err := client.DoCustomRequest(ctx, "GET", "/users/me.json", "v2", nil, nil)
+	msg, err := client.DoCustomRequestV5(ctx, "GET", "/users/me.json", nil, nil)
 	if err != nil {
 		t.Fatalf("failed to get current Passbolt user: %v", err)
 	}

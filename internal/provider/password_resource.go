@@ -2,10 +2,10 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"terraform-provider-passbolt/tools"
 
+	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -52,6 +52,16 @@ type passwordModel struct {
 	Password          types.String   `tfsdk:"password"`
 	PasswordWO        types.String   `tfsdk:"password_wo"`
 	PasswordWOVersion types.Int64    `tfsdk:"password_wo_version"`
+}
+
+type passwordStringUpdateRequest struct {
+	ID             string       `json:"id,omitempty"`
+	ResourceTypeID string       `json:"resource_type_id,omitempty"`
+	Name           string       `json:"name,omitempty"`
+	Username       string       `json:"username,omitempty"`
+	URI            *string      `json:"uri,omitempty"`
+	Description    *string      `json:"description,omitempty"`
+	Secrets        []api.Secret `json:"secrets,omitempty"`
 }
 
 func (r *passwordResource) Configure(
@@ -105,7 +115,8 @@ func (r *passwordResource) ConfigValidators(_ context.Context) []resource.Config
 func (r *passwordResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a secret/password entry in Passbolt. Supports optional folder placement, group sharing, " +
-			"and both legacy stateful passwords and write-only password workflows.",
+			"Passbolt v4 and v5 encrypted metadata resources, and both legacy stateful passwords and write-only " +
+			"password workflows.",
 		Attributes: passwordResourceSchemaAttributes(),
 	}
 }
@@ -541,6 +552,7 @@ func updateResourceFields(
 		plan.Name.ValueString(),
 		plan.Username.ValueString(),
 		plan.URI.ValueString(),
+		passwordStringChanged(plan.URI, state.URI),
 		passwordValue,
 		descriptionValue,
 	)
@@ -563,208 +575,109 @@ func updatePassboltPasswordResource(
 	name string,
 	username string,
 	uri string,
+	updateURI bool,
 	password string,
 	description string,
 ) error {
-	resourceData, resourceType, users, err := loadPasswordUpdateContext(ctx, client, resourceID)
+	resourceData, resourceType, err := loadPasswordResourceType(ctx, client, resourceID)
 	if err != nil {
 		return err
 	}
 
-	updatedResource := api.Resource{
-		ID:             resourceID,
-		ResourceTypeID: resourceData.ResourceTypeID,
-		Name:           resourceData.Name,
-		Username:       resourceData.Username,
-		URI:            resourceData.URI,
-	}
-	updatedResource.Name = name
-	updatedResource.Username = username
-	updatedResource.URI = uri
-
-	if resourceType.Slug == "password-string" {
-		updatedResource.Description = description
-	}
-
-	secretData, err := buildUpdatedPasswordSecretData(ctx, client, resourceID, resourceType.Slug, password, description)
-	if err != nil {
-		return err
+	if isV4PasswordStringResource(resourceData, resourceType) {
+		return updateV4PasswordStringResource(
+			ctx,
+			client,
+			resourceData,
+			resourceID,
+			name,
+			username,
+			uri,
+			updateURI,
+			password,
+			description,
+		)
 	}
 
-	updatedResource.Secrets, err = encryptSecretDataForUsers(client.Client, users, secretData)
-	if err != nil {
-		return err
-	}
+	metadataUpdates, secretUpdates := passwordUpdateMaps(name, username, uri, updateURI, password, description)
 
-	_, err = client.Client.UpdateResource(ctx, resourceID, updatedResource)
-	if err != nil {
-		return fmt.Errorf("updating resource: %w", err)
-	}
-
-	return nil
+	return helper.UpdateResourceGeneric(ctx, client.Client, resourceID, metadataUpdates, secretUpdates)
 }
 
-func loadPasswordUpdateContext(
+func loadPasswordResourceType(
 	ctx context.Context,
 	client *tools.PassboltClient,
 	resourceID string,
-) (*api.Resource, *api.ResourceType, []api.User, error) {
+) (*api.Resource, *api.ResourceType, error) {
 	resourceData, err := client.Client.GetResource(ctx, resourceID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("getting resource: %w", err)
+		return nil, nil, fmt.Errorf("getting resource: %w", err)
 	}
 
 	resourceType, err := client.Client.GetResourceType(ctx, resourceData.ResourceTypeID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("getting resource type: %w", err)
+		return nil, nil, fmt.Errorf("getting resource type: %w", err)
+	}
+
+	return resourceData, resourceType, nil
+}
+
+func isV4PasswordStringResource(resourceData *api.Resource, resourceType *api.ResourceType) bool {
+	return resourceData.Metadata == "" && resourceType.Slug == "password-string"
+}
+
+func updateV4PasswordStringResource(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceData *api.Resource,
+	resourceID string,
+	name string,
+	username string,
+	uri string,
+	updateURI bool,
+	password string,
+	description string,
+) error {
+	secretData := password
+	if secretData == "" {
+		currentSecret, err := readDecryptedSecret(ctx, client, resourceID)
+		if err != nil {
+			return err
+		}
+
+		secretData = currentSecret
 	}
 
 	users, err := client.Client.GetUsers(ctx, &api.GetUsersOptions{
 		FilterHasAccess: []string{resourceID},
 	})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("getting users: %w", err)
+		return fmt.Errorf("getting users: %w", err)
 	}
 
-	return resourceData, resourceType, users, nil
-}
-
-func buildUpdatedPasswordSecretData(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-	resourceTypeSlug string,
-	password string,
-	description string,
-) (string, error) {
-	switch resourceTypeSlug {
-	case "password-string":
-		return passwordSecretData(ctx, client, resourceID, password)
-	case "password-and-description":
-		return passwordAndDescriptionSecretData(ctx, client, resourceID, password, description)
-	case "password-description-totp":
-		return passwordDescriptionTOTPSecretData(ctx, client, resourceID, password, description)
-	default:
-		return "", fmt.Errorf("unsupported passbolt resource type: %s", resourceTypeSlug)
-	}
-}
-
-func passwordSecretData(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-	password string,
-) (string, error) {
-	if password != "" {
-		return password, nil
-	}
-
-	secret, err := client.Client.GetSecret(ctx, resourceID)
+	secrets, err := encryptSecretDataForUsers(client.Client, users, secretData)
 	if err != nil {
-		return "", fmt.Errorf("getting secret: %w", err)
+		return err
 	}
 
-	secretData, err := client.Client.DecryptMessage(secret.Data)
+	request := passwordStringUpdateRequest{
+		ID:             resourceID,
+		ResourceTypeID: resourceData.ResourceTypeID,
+		Name:           name,
+		Username:       username,
+		Description:    &description,
+		Secrets:        secrets,
+	}
+	if updateURI {
+		request.URI = &uri
+	}
+
+	_, err = client.Client.DoCustomRequestV5(ctx, "PUT", "/resources/"+resourceID+".json", request, nil)
 	if err != nil {
-		return "", fmt.Errorf("decrypting secret: %w", err)
+		return fmt.Errorf("updating v4 password-string resource: %w", err)
 	}
 
-	return secretData, nil
-}
-
-func passwordAndDescriptionSecretData(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-	password string,
-	description string,
-) (string, error) {
-	secretData := api.SecretDataTypePasswordAndDescription{
-		Password:    password,
-		Description: description,
-	}
-
-	if password == "" {
-		oldSecret, err := readPasswordAndDescriptionSecret(ctx, client, resourceID)
-		if err != nil {
-			return "", err
-		}
-
-		secretData.Password = oldSecret.Password
-	}
-
-	marshaled, err := json.Marshal(&secretData)
-	if err != nil {
-		return "", fmt.Errorf("marshalling secret data: %w", err)
-	}
-
-	return string(marshaled), nil
-}
-
-func passwordDescriptionTOTPSecretData(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-	password string,
-	description string,
-) (string, error) {
-	oldSecret, err := readPasswordDescriptionTOTPSecret(ctx, client, resourceID)
-	if err != nil {
-		return "", err
-	}
-
-	if password != "" {
-		oldSecret.Password = password
-	}
-
-	oldSecret.Description = description
-
-	marshaled, err := json.Marshal(&oldSecret)
-	if err != nil {
-		return "", fmt.Errorf("marshalling secret data: %w", err)
-	}
-
-	return string(marshaled), nil
-}
-
-func readPasswordAndDescriptionSecret(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-) (api.SecretDataTypePasswordAndDescription, error) {
-	var secretData api.SecretDataTypePasswordAndDescription
-
-	decryptedSecret, err := readDecryptedSecret(ctx, client, resourceID)
-	if err != nil {
-		return secretData, err
-	}
-
-	err = json.Unmarshal([]byte(decryptedSecret), &secretData)
-	if err != nil {
-		return secretData, fmt.Errorf("parsing decrypted secret data: %w", err)
-	}
-
-	return secretData, nil
-}
-
-func readPasswordDescriptionTOTPSecret(
-	ctx context.Context,
-	client *tools.PassboltClient,
-	resourceID string,
-) (api.SecretDataTypePasswordDescriptionTOTP, error) {
-	var secretData api.SecretDataTypePasswordDescriptionTOTP
-
-	decryptedSecret, err := readDecryptedSecret(ctx, client, resourceID)
-	if err != nil {
-		return secretData, err
-	}
-
-	err = json.Unmarshal([]byte(decryptedSecret), &secretData)
-	if err != nil {
-		return secretData, fmt.Errorf("parsing decrypted secret data: %w", err)
-	}
-
-	return secretData, nil
+	return nil
 }
 
 func readDecryptedSecret(
@@ -813,12 +726,56 @@ func encryptSecretDataForUser(client *api.Client, user api.User, secretData stri
 		return encryptedSecret, nil
 	}
 
-	encryptedSecret, err := client.EncryptMessageWithPublicKey(user.GPGKey.ArmoredKey, secretData)
+	publicKey, err := crypto.NewKeyFromArmored(user.GPGKey.ArmoredKey)
+	if err != nil {
+		return "", fmt.Errorf("getting public key for user %s: %w", user.ID, err)
+	}
+
+	encryptedSecret, err := client.EncryptMessageWithKey(publicKey, secretData)
 	if err != nil {
 		return "", fmt.Errorf("encrypting secret data for user %s: %w", user.ID, err)
 	}
 
 	return encryptedSecret, nil
+}
+
+func passwordUpdateMaps(
+	name string,
+	username string,
+	uri string,
+	updateURI bool,
+	password string,
+	description string,
+) (map[string]any, map[string]any) {
+	metadataUpdates := map[string]any{
+		"name":        name,
+		"username":    username,
+		"description": description,
+	}
+	if updateURI {
+		metadataUpdates["uri"] = uri
+	}
+
+	secretUpdates := map[string]any{
+		"description": description,
+	}
+
+	if password != "" {
+		secretUpdates["password"] = password
+	}
+
+	return metadataUpdates, secretUpdates
+}
+
+func passwordStringChanged(plan types.String, state types.String) bool {
+	if plan.IsUnknown() || state.IsUnknown() {
+		return true
+	}
+	if plan.IsNull() || state.IsNull() {
+		return plan.IsNull() != state.IsNull()
+	}
+
+	return plan.ValueString() != state.ValueString()
 }
 
 func moveResourceIfNeeded(
