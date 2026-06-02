@@ -59,7 +59,7 @@ type passwordStringUpdateRequest struct {
 	ResourceTypeID string       `json:"resource_type_id,omitempty"`
 	Name           string       `json:"name,omitempty"`
 	Username       string       `json:"username,omitempty"`
-	URI            string       `json:"uri,omitempty"`
+	URI            *string      `json:"uri,omitempty"`
 	Description    *string      `json:"description,omitempty"`
 	Secrets        []api.Secret `json:"secrets,omitempty"`
 }
@@ -552,6 +552,7 @@ func updateResourceFields(
 		plan.Name.ValueString(),
 		plan.Username.ValueString(),
 		plan.URI.ValueString(),
+		passwordStringChanged(plan.URI, state.URI),
 		passwordValue,
 		descriptionValue,
 	)
@@ -574,6 +575,7 @@ func updatePassboltPasswordResource(
 	name string,
 	username string,
 	uri string,
+	updateURI bool,
 	password string,
 	description string,
 ) error {
@@ -591,12 +593,13 @@ func updatePassboltPasswordResource(
 			name,
 			username,
 			uri,
+			updateURI,
 			password,
 			description,
 		)
 	}
 
-	metadataUpdates, secretUpdates := passwordUpdateMaps(name, username, uri, password, description)
+	metadataUpdates, secretUpdates := passwordUpdateMaps(name, username, uri, updateURI, password, description)
 
 	return helper.UpdateResourceGeneric(ctx, client.Client, resourceID, metadataUpdates, secretUpdates)
 }
@@ -631,6 +634,7 @@ func updateV4PasswordStringResource(
 	name string,
 	username string,
 	uri string,
+	updateURI bool,
 	password string,
 	description string,
 ) error {
@@ -661,9 +665,11 @@ func updateV4PasswordStringResource(
 		ResourceTypeID: resourceData.ResourceTypeID,
 		Name:           name,
 		Username:       username,
-		URI:            uri,
 		Description:    &description,
 		Secrets:        secrets,
+	}
+	if updateURI {
+		request.URI = &uri
 	}
 
 	_, err = client.Client.DoCustomRequestV5(ctx, "PUT", "/resources/"+resourceID+".json", request, nil)
@@ -737,15 +743,19 @@ func passwordUpdateMaps(
 	name string,
 	username string,
 	uri string,
+	updateURI bool,
 	password string,
 	description string,
 ) (map[string]any, map[string]any) {
 	metadataUpdates := map[string]any{
 		"name":        name,
 		"username":    username,
-		"uri":         uri,
 		"description": description,
 	}
+	if updateURI {
+		metadataUpdates["uri"] = uri
+	}
+
 	secretUpdates := map[string]any{
 		"description": description,
 	}
@@ -755,6 +765,17 @@ func passwordUpdateMaps(
 	}
 
 	return metadataUpdates, secretUpdates
+}
+
+func passwordStringChanged(plan types.String, state types.String) bool {
+	if plan.IsUnknown() || state.IsUnknown() {
+		return true
+	}
+	if plan.IsNull() || state.IsNull() {
+		return plan.IsNull() != state.IsNull()
+	}
+
+	return plan.ValueString() != state.ValueString()
 }
 
 func moveResourceIfNeeded(

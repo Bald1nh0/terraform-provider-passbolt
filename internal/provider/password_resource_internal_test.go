@@ -14,6 +14,7 @@ func TestPasswordUpdateMapsIncludeMetadataAndSecretFields(t *testing.T) {
 		"db-admin",
 		"admin",
 		"https://db.example.com",
+		true,
 		"rotated-secret",
 		"production database credentials",
 	)
@@ -33,6 +34,7 @@ func TestPasswordUpdateMapsOmitEmptyPassword(t *testing.T) {
 		"db-admin",
 		"admin",
 		"https://db.example.com",
+		true,
 		"",
 		"production database credentials",
 	)
@@ -44,16 +46,38 @@ func TestPasswordUpdateMapsOmitEmptyPassword(t *testing.T) {
 	assertMapString(t, secret, "description", "production database credentials")
 }
 
+func TestPasswordUpdateMapsOmitUnchangedURI(t *testing.T) {
+	t.Parallel()
+
+	metadata, _ := passwordUpdateMaps(
+		"db-admin",
+		"admin",
+		"https://db.example.com",
+		false,
+		"",
+		"production database credentials",
+	)
+
+	if _, ok := metadata["uri"]; ok {
+		t.Fatal("uri should be omitted when Terraform did not change it")
+	}
+
+	assertMapString(t, metadata, "name", "db-admin")
+	assertMapString(t, metadata, "username", "admin")
+	assertMapString(t, metadata, "description", "production database credentials")
+}
+
 func TestPasswordStringUpdateRequestAllowsEmptyDescription(t *testing.T) {
 	t.Parallel()
 
 	description := ""
+	uri := "https://db.example.com"
 	payload, err := json.Marshal(passwordStringUpdateRequest{
 		ID:             "resource-id",
 		ResourceTypeID: "resource-type-id",
 		Name:           "db-admin",
 		Username:       "admin",
-		URI:            "https://db.example.com",
+		URI:            &uri,
 		Description:    &description,
 	})
 	if err != nil {
@@ -67,6 +91,31 @@ func TestPasswordStringUpdateRequestAllowsEmptyDescription(t *testing.T) {
 
 	if got, ok := decoded["description"].(string); !ok || got != "" {
 		t.Fatalf("expected explicit empty description, got %#v", decoded["description"])
+	}
+}
+
+func TestPasswordStringUpdateRequestOmitsUnchangedURI(t *testing.T) {
+	t.Parallel()
+
+	description := ""
+	payload, err := json.Marshal(passwordStringUpdateRequest{
+		ID:             "resource-id",
+		ResourceTypeID: "resource-type-id",
+		Name:           "db-admin",
+		Username:       "admin",
+		Description:    &description,
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal password string update request: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("failed to decode password string update request: %v", err)
+	}
+
+	if _, ok := decoded["uri"]; ok {
+		t.Fatalf("expected unchanged uri to be omitted, got %#v", decoded["uri"])
 	}
 }
 
