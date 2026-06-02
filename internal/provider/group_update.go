@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
 )
@@ -142,7 +143,7 @@ func updateGroupDryRun(
 	groupID string,
 	request groupUpdateRequest,
 ) (*api.UpdateGroupDryRunResult, error) {
-	msg, err := client.DoCustomRequest(ctx, "PUT", "/groups/"+groupID+"/dry-run.json", "v2", request, nil)
+	msg, err := client.DoCustomRequestV5(ctx, "PUT", "/groups/"+groupID+"/dry-run.json", request, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +191,12 @@ func appendMissingGroupSecrets(
 			return fmt.Errorf("get public key for user: %w", err)
 		}
 
-		newSecretData, err := client.EncryptMessageWithPublicKey(publicKey, decryptedSecret)
+		publicKeyObj, err := crypto.NewKeyFromArmored(publicKey)
+		if err != nil {
+			return fmt.Errorf("get public key: %w", err)
+		}
+
+		newSecretData, err := client.EncryptMessageWithKey(publicKeyObj, decryptedSecret)
 		if err != nil {
 			return fmt.Errorf("encrypting secret: %w", err)
 		}
@@ -251,7 +257,7 @@ func saveGroupUpdate(
 	groupID string,
 	request groupUpdateRequest,
 ) error {
-	msg, err := client.DoCustomRequest(ctx, "PUT", "/groups/"+groupID+".json", "v2", request, nil)
+	msg, err := client.DoCustomRequestV5(ctx, "PUT", "/groups/"+groupID+".json", request, nil)
 	if err != nil {
 		return fmt.Errorf("updating group: %w", err)
 	}
