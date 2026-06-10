@@ -151,6 +151,46 @@ func TestPasswordV5ResourceTypeSlugForUpgrade(t *testing.T) {
 	}
 }
 
+func TestPasswordUpgradeMetadataPayloadRoutesDescriptionByResourceType(t *testing.T) {
+	t.Parallel()
+
+	defaultPayload := passwordUpgradeMetadataPayload(
+		&api.ResourceType{ID: "v5-default-id", Slug: "v5-default"},
+		"db-admin",
+		"admin",
+		"https://db.example.com",
+		"production database credentials",
+	)
+	defaultJSON, err := json.Marshal(defaultPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal v5-default metadata payload: %v", err)
+	}
+	var defaultDecoded map[string]any
+	if err := json.Unmarshal(defaultJSON, &defaultDecoded); err != nil {
+		t.Fatalf("failed to decode v5-default metadata payload: %v", err)
+	}
+	if _, ok := defaultDecoded["description"]; ok {
+		t.Fatalf("v5-default metadata payload should omit description, got %#v", defaultDecoded["description"])
+	}
+
+	passwordStringPayload := passwordUpgradeMetadataPayload(
+		&api.ResourceType{ID: "v5-password-string-id", Slug: "v5-password-string"},
+		"db-admin",
+		"admin",
+		"https://db.example.com",
+		"production database credentials",
+	)
+	passwordStringJSON, err := json.Marshal(passwordStringPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal v5-password-string metadata payload: %v", err)
+	}
+	var passwordStringDecoded map[string]any
+	if err := json.Unmarshal(passwordStringJSON, &passwordStringDecoded); err != nil {
+		t.Fatalf("failed to decode v5-password-string metadata payload: %v", err)
+	}
+	assertMapString(t, passwordStringDecoded, "description", "production database credentials")
+}
+
 func assertMapString(t *testing.T, values map[string]any, key string, want string) {
 	t.Helper()
 

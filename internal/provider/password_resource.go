@@ -75,7 +75,7 @@ type passwordMetadataPayload struct {
 	Name           string   `json:"name"`
 	Username       string   `json:"username"`
 	URIs           []string `json:"uris"`
-	Description    string   `json:"description"`
+	Description    *string  `json:"description,omitempty"`
 }
 
 func (r *passwordResource) Configure(
@@ -770,7 +770,7 @@ func upgradePassboltPasswordToV5(
 		ctx,
 		client,
 		resourceData,
-		v5ResourceType.ID,
+		v5ResourceType,
 		name,
 		username,
 		uri,
@@ -794,7 +794,7 @@ func buildPasswordMetadataUpgradeRequest(
 	ctx context.Context,
 	client *tools.PassboltClient,
 	resourceData *api.Resource,
-	v5ResourceTypeID string,
+	v5ResourceType *api.ResourceType,
 	name string,
 	username string,
 	uri string,
@@ -805,14 +805,7 @@ func buildPasswordMetadataUpgradeRequest(
 		return metadataUpgradeRequest{}, fmt.Errorf("get metadata key: %w", err)
 	}
 
-	metadata := passwordMetadataPayload{
-		ObjectType:     api.PassboltObjectTypeResourceMetadata,
-		ResourceTypeID: v5ResourceTypeID,
-		Name:           name,
-		Username:       username,
-		URIs:           []string{uri},
-		Description:    description,
-	}
+	metadata := passwordUpgradeMetadataPayload(v5ResourceType, name, username, uri, description)
 
 	encodedMetadata, err := json.Marshal(metadata)
 	if err != nil {
@@ -832,6 +825,28 @@ func buildPasswordMetadataUpgradeRequest(
 		Modified:        resourceData.Modified.Format(time.RFC3339),
 		ModifiedBy:      resourceData.ModifiedBy,
 	}, nil
+}
+
+func passwordUpgradeMetadataPayload(
+	v5ResourceType *api.ResourceType,
+	name string,
+	username string,
+	uri string,
+	description string,
+) passwordMetadataPayload {
+	metadata := passwordMetadataPayload{
+		ObjectType:     api.PassboltObjectTypeResourceMetadata,
+		ResourceTypeID: v5ResourceType.ID,
+		Name:           name,
+		Username:       username,
+		URIs:           []string{uri},
+	}
+
+	if v5ResourceType.Slug == "v5-password-string" {
+		metadata.Description = &description
+	}
+
+	return metadata
 }
 
 func passwordV5ResourceTypeForUpgrade(
