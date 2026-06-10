@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.10.0 — 2026-06-10
+
+### ✨ Added
+
+- Added `metadata_type` opt-in for `passbolt_password` and `passbolt_folder` to explicitly create or upgrade managed items to Passbolt v5 encrypted metadata while preserving the unset server-default behavior.
+- Added `metadata_type_actual` on `passbolt_password` and `passbolt_folder` to expose whether the remote item is currently stored as v4 or v5 metadata.
+- Added provider-side v5 encrypted metadata support for `passbolt_folder` create, read, update, import, and v4-to-v5 upgrade flows.
+
+### 🛠 Improved
+
+- Folder name and path resolution now decrypts v5 folder metadata, allowing `folder_parent` and `data.passbolt_folders` to work with encrypted folder names.
+- `passbolt_password` can now upgrade managed v4 password resources to v5 encrypted metadata with `metadata_type = "v5"`.
+
 ## v1.9.0 — 2026-06-02
 
 ### ✨ Added

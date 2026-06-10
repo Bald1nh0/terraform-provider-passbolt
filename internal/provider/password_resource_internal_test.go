@@ -137,6 +137,20 @@ func TestIsV4PasswordStringResource(t *testing.T) {
 	}
 }
 
+func TestPasswordV5ResourceTypeSlugForUpgrade(t *testing.T) {
+	t.Parallel()
+
+	passwordStringType := &api.ResourceType{Slug: "password-string"}
+	if got := passwordV5ResourceTypeSlugForUpgrade(passwordStringType); got != "v5-password-string" {
+		t.Fatalf("expected password-string to map to v5-password-string, got %q", got)
+	}
+
+	passwordDescriptionType := &api.ResourceType{Slug: "password-and-description"}
+	if got := passwordV5ResourceTypeSlugForUpgrade(passwordDescriptionType); got != "v5-default" {
+		t.Fatalf("expected password-and-description to map to v5-default, got %q", got)
+	}
+}
+
 func assertMapString(t *testing.T, values map[string]any, key string, want string) {
 	t.Helper()
 

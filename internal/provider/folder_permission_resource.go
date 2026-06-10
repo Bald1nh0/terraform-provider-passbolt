@@ -189,7 +189,7 @@ func (r *folderPermissionResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	folders, err := r.client.Client.GetFolders(ctx, &api.GetFoldersOptions{
+	folders, err := getPassboltFolders(ctx, r.client, &api.GetFoldersOptions{
 		ContainPermissions: true,
 	})
 	if err != nil {

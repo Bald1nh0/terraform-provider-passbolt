@@ -135,7 +135,7 @@ func (d *foldersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 func (d *foldersDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state foldersDataSourceModel
 
-	folders, err := d.client.Client.GetFolders(ctx, nil)
+	folders, err := getPassboltFolders(ctx, d.client, nil)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read folders", "",
