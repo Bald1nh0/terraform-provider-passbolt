@@ -134,9 +134,12 @@ provider "passbolt" {
 
 Creates a new folder in Passbolt.
 
+Supports legacy v4 folder metadata and v5 encrypted folder metadata. Leave `metadata_type` unset to use the Passbolt server default for new folders without migrating existing folders. Set `metadata_type = "v5"` on a managed folder to explicitly create or upgrade it to encrypted metadata.
+
 ```hcl
 resource "passbolt_folder" "application_a" {
-  name = "application_A"
+  name          = "application_A"
+  metadata_type = "v5"
 }
 
 resource "passbolt_folder" "application_a_prod" {
@@ -159,6 +162,8 @@ resource "passbolt_folder" "application_a_prod_sub_folder_3" {
 Creates a new password in Passbolt and can share it with groups.
 
 Supports legacy v4 resources and v5 encrypted metadata resources. New resources follow the Passbolt server's default resource metadata type: if the server default is encrypted metadata, the provider creates `v5-default` password resources; if the server default is legacy metadata, it creates v4 resources.
+
+Set `metadata_type = "v5"` to explicitly create or upgrade a managed password to encrypted metadata. Leave it unset to keep the current server-default behavior without migrating existing passwords.
 
 `passbolt_password` supports two secret flows:
 
@@ -183,6 +188,7 @@ resource "passbolt_password" "example" {
   password_wo_version = 1
   uri                 = "https://centrifugo.example.com"
   folder_parent       = passbolt_folder.application_a_prod.id
+  metadata_type       = "v5"
   share_groups        = [data.passbolt_group.devops.id]
 }
 ```
@@ -340,6 +346,8 @@ Can be used with share_groups in passbolt_password and passbolt_folder_permissio
 ## Data Source: passbolt_folders
 
 Look up all folders, including their resolved absolute paths.
+
+The data source decrypts v5 folder metadata when the authenticated user has access to the folder metadata key, so `name` and `path` work for both v4 and v5 folders.
 
 ```hcl
 data "passbolt_folders" "all" {}

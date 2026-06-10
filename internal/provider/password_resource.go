@@ -2,12 +2,15 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"terraform-provider-passbolt/tools"
+	"time"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -41,17 +44,19 @@ type passwordPrivateStateReader interface {
 }
 
 type passwordModel struct {
-	ID                types.String   `tfsdk:"id"`
-	Name              types.String   `tfsdk:"name"`
-	Description       types.String   `tfsdk:"description"`
-	Username          types.String   `tfsdk:"username"`
-	URI               types.String   `tfsdk:"uri"`
-	ShareGroup        types.String   `tfsdk:"share_group"`
-	ShareGroups       []types.String `tfsdk:"share_groups"`
-	FolderParent      types.String   `tfsdk:"folder_parent"`
-	Password          types.String   `tfsdk:"password"`
-	PasswordWO        types.String   `tfsdk:"password_wo"`
-	PasswordWOVersion types.Int64    `tfsdk:"password_wo_version"`
+	ID                 types.String   `tfsdk:"id"`
+	Name               types.String   `tfsdk:"name"`
+	Description        types.String   `tfsdk:"description"`
+	Username           types.String   `tfsdk:"username"`
+	URI                types.String   `tfsdk:"uri"`
+	ShareGroup         types.String   `tfsdk:"share_group"`
+	ShareGroups        []types.String `tfsdk:"share_groups"`
+	FolderParent       types.String   `tfsdk:"folder_parent"`
+	Password           types.String   `tfsdk:"password"`
+	PasswordWO         types.String   `tfsdk:"password_wo"`
+	PasswordWOVersion  types.Int64    `tfsdk:"password_wo_version"`
+	MetadataType       types.String   `tfsdk:"metadata_type"`
+	MetadataTypeActual types.String   `tfsdk:"metadata_type_actual"`
 }
 
 type passwordStringUpdateRequest struct {
@@ -62,6 +67,15 @@ type passwordStringUpdateRequest struct {
 	URI            *string      `json:"uri,omitempty"`
 	Description    *string      `json:"description,omitempty"`
 	Secrets        []api.Secret `json:"secrets,omitempty"`
+}
+
+type passwordMetadataPayload struct {
+	ObjectType     string   `json:"object_type"`
+	ResourceTypeID string   `json:"resource_type_id"`
+	Name           string   `json:"name"`
+	Username       string   `json:"username"`
+	URIs           []string `json:"uris"`
+	Description    *string  `json:"description,omitempty"`
 }
 
 func (r *passwordResource) Configure(
@@ -155,6 +169,19 @@ func passwordResourceCoreAttributes() map[string]schema.Attribute {
 			Optional:    true,
 			Description: "Name or UUID of an existing folder to place the secret in. Leave unset to place at top level.",
 		},
+		"metadata_type": schema.StringAttribute{
+			Optional: true,
+			Description: "Optional metadata format for this password. Use `v5` to create or migrate the password " +
+				"to encrypted metadata, `v4` to force legacy cleartext metadata on create, or leave unset to use " +
+				"the Passbolt server default without migrating existing passwords.",
+			Validators: []validator.String{
+				stringvalidator.OneOf(metadataTypeV4, metadataTypeV5, metadataTypeServerDefault),
+			},
+		},
+		"metadata_type_actual": schema.StringAttribute{
+			Computed:    true,
+			Description: "Actual remote metadata format for this password: `v4` or `v5`.",
+		},
 	}
 }
 
@@ -231,15 +258,16 @@ func (r *passwordResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	resourceID, err := helper.CreateResource(
+	resourceID, metadataTypeActual, err := createPassboltPasswordResource(
 		ctx,
-		r.client.Client,
+		r.client,
 		folderID,
 		plan.Name.ValueString(),
 		plan.Username.ValueString(),
 		plan.URI.ValueString(),
 		configuredPassword(config),
 		plan.Description.ValueString(),
+		desiredMetadataType(plan.MetadataType),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot create resource", err.Error())
@@ -248,6 +276,7 @@ func (r *passwordResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	plan.ID = types.StringValue(resourceID)
+	plan.MetadataTypeActual = types.StringValue(metadataTypeActual)
 
 	if len(plan.ShareGroups) > 0 {
 		shareResourceWithGroups(ctx, r.client, plan.ShareGroups, resourceID, &resp.Diagnostics)
@@ -271,7 +300,7 @@ func resolveFolderID(
 	}
 
 	value := folder.ValueString()
-	folders, err := client.Client.GetFolders(ctx, nil)
+	folders, err := getPassboltFolders(ctx, client, nil)
 	if err != nil {
 		diags.AddError("Cannot get folders", err.Error())
 
@@ -287,6 +316,76 @@ func resolveFolderID(
 	diags.AddError("Folder not found", fmt.Sprintf("Folder with name or ID '%s' not found", value))
 
 	return "", diags
+}
+
+func createPassboltPasswordResource(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	folderID string,
+	name string,
+	username string,
+	uri string,
+	password string,
+	description string,
+	metadataType string,
+) (string, string, error) {
+	actualType := passwordMetadataTypeForCreate(client, metadataType)
+
+	switch actualType {
+	case metadataTypeV5:
+		resourceID, err := helper.CreateResourceGeneric(ctx, client.Client, "v5-default", folderID,
+			map[string]any{
+				"name":     name,
+				"username": username,
+				"uris":     []string{uri},
+			},
+			map[string]any{
+				"password":    password,
+				"description": description,
+			},
+		)
+
+		return resourceID, actualType, err
+	case metadataTypeV4:
+		resourceID, err := helper.CreateResourceGeneric(ctx, client.Client, "password-and-description", folderID,
+			map[string]any{
+				"name":     name,
+				"username": username,
+				"uri":      uri,
+			},
+			map[string]any{
+				"password":    password,
+				"description": description,
+			},
+		)
+
+		return resourceID, actualType, err
+	default:
+		resourceID, err := helper.CreateResource(
+			ctx,
+			client.Client,
+			folderID,
+			name,
+			username,
+			uri,
+			password,
+			description,
+		)
+
+		return resourceID, passwordMetadataTypeForCreate(client, metadataTypeServerDefault), err
+	}
+}
+
+func passwordMetadataTypeForCreate(client *tools.PassboltClient, metadataType string) string {
+	if metadataType == metadataTypeServerDefault {
+		if client.Client.MetadataTypeSettings().DefaultResourceType == api.PassboltAPIVersionTypeV5 {
+			return metadataTypeV5
+		}
+
+		return metadataTypeV4
+	}
+
+	return metadataType
 }
 
 func shareResourceWithGroups(
@@ -387,6 +486,13 @@ func buildPasswordState(
 	var state passwordModel
 	var diags diag.Diagnostics
 
+	resourceData, err := client.Client.GetResource(ctx, id)
+	if err != nil {
+		diags.AddError("Cannot read resource", err.Error())
+
+		return state, diags
+	}
+
 	folderID, name, username, uri, password, description, err := helper.GetResource(ctx, client.Client, id)
 	if err != nil {
 		diags.AddError("Cannot read resource", err.Error())
@@ -400,6 +506,8 @@ func buildPasswordState(
 	state.URI = types.StringValue(uri)
 	state.Description = pickOptional(description)
 	state.FolderParent = pickOptional(folderID)
+	state.MetadataType = existing.MetadataType
+	state.MetadataTypeActual = types.StringValue(actualMetadataTypeFromEncryptedMetadata(resourceData.Metadata))
 	state.Password, state.PasswordWO, state.PasswordWOVersion = buildPasswordStateSecrets(
 		existing,
 		password,
@@ -507,12 +615,14 @@ func (r *passwordResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	if diags := updateResourceFields(ctx, r, config, plan, state); diags.HasError() {
+	metadataTypeActual, diags := updateResourceFields(ctx, r, config, plan, state)
+	if diags.HasError() {
 		resp.Diagnostics.Append(diags...)
 
 		return
 	}
 
+	plan.MetadataTypeActual = types.StringValue(metadataTypeActual)
 	resp.Diagnostics.Append(resp.State.Set(ctx, buildManagedPasswordState(plan, config, state.ID))...)
 	resp.Diagnostics.Append(resp.Private.SetKey(ctx, passwordImportSecretModeUnknownPrivateKey, nil)...)
 }
@@ -537,15 +647,31 @@ func updateResourceFields(
 	config passwordModel,
 	plan passwordModel,
 	state passwordModel,
-) diag.Diagnostics {
+) (string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	passwordValue, descriptionValue, secretDiags := resolveSecretUpdateInputs(ctx, r.client, config, plan, state)
 	diags.Append(secretDiags...)
 	if diags.HasError() {
-		return diags
+		return "", diags
 	}
 
-	err := updatePassboltPasswordResource(
+	metadataTypeActual, err := ensurePassboltPasswordMetadataType(
+		ctx,
+		r.client,
+		state.ID.ValueString(),
+		desiredMetadataType(plan.MetadataType),
+		plan.Name.ValueString(),
+		plan.Username.ValueString(),
+		plan.URI.ValueString(),
+		descriptionValue,
+	)
+	if err != nil {
+		diags.AddError("Error updating resource metadata type", err.Error())
+
+		return "", diags
+	}
+
+	err = updatePassboltPasswordResource(
 		ctx,
 		r.client,
 		state.ID.ValueString(),
@@ -559,13 +685,203 @@ func updateResourceFields(
 	if err != nil {
 		diags.AddError("Error updating resource", err.Error())
 
-		return diags
+		return "", diags
 	}
 
 	diags.Append(moveResourceIfNeeded(ctx, r.client, plan, state)...)
 	shareResourceIfNeeded(ctx, r.client, plan, state.ID.ValueString(), &diags)
 
-	return diags
+	return metadataTypeActual, diags
+}
+
+func ensurePassboltPasswordMetadataType(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceID string,
+	metadataType string,
+	name string,
+	username string,
+	uri string,
+	description string,
+) (string, error) {
+	resourceData, resourceType, err := loadPasswordResourceType(ctx, client, resourceID)
+	if err != nil {
+		return "", err
+	}
+
+	actualType := actualMetadataTypeFromEncryptedMetadata(resourceData.Metadata)
+	if metadataType == metadataTypeServerDefault || metadataType == actualType {
+		return actualType, nil
+	}
+
+	if metadataType == metadataTypeV4 && actualType == metadataTypeV5 {
+		return actualType, fmt.Errorf(
+			"downgrading passwords from v5 encrypted metadata to v4 cleartext metadata is not supported",
+		)
+	}
+
+	if metadataType == metadataTypeV5 && actualType == metadataTypeV4 {
+		if err := upgradePassboltPasswordToV5(
+			ctx,
+			client,
+			resourceData,
+			resourceType,
+			name,
+			username,
+			uri,
+			description,
+		); err != nil {
+			return "", err
+		}
+
+		return metadataTypeV5, nil
+	}
+
+	return actualType, nil
+}
+
+func upgradePassboltPasswordToV5(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceData *api.Resource,
+	resourceType *api.ResourceType,
+	name string,
+	username string,
+	uri string,
+	description string,
+) error {
+	if !client.Client.MetadataTypeSettings().AllowV4V5Upgrade {
+		return fmt.Errorf("v4 to v5 metadata upgrade is disabled on this server")
+	}
+
+	if resourceData.Modified == nil {
+		return fmt.Errorf(
+			"resource %s cannot be upgraded because the API response has no modified timestamp",
+			resourceData.ID,
+		)
+	}
+
+	v5ResourceType, err := passwordV5ResourceTypeForUpgrade(ctx, client, resourceType)
+	if err != nil {
+		return err
+	}
+
+	request, err := buildPasswordMetadataUpgradeRequest(
+		ctx,
+		client,
+		resourceData,
+		v5ResourceType,
+		name,
+		username,
+		uri,
+		description,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Client.DoCustomRequestV5(ctx, "POST", "/metadata/upgrade/resources.json", []metadataUpgradeRequest{
+		request,
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("upgrading resource metadata to v5: %w", err)
+	}
+
+	return nil
+}
+
+func buildPasswordMetadataUpgradeRequest(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceData *api.Resource,
+	v5ResourceType *api.ResourceType,
+	name string,
+	username string,
+	uri string,
+	description string,
+) (metadataUpgradeRequest, error) {
+	metadataKeyID, metadataKeyType, publicMetadataKey, err := client.Client.GetMetadataKey(ctx, false)
+	if err != nil {
+		return metadataUpgradeRequest{}, fmt.Errorf("get metadata key: %w", err)
+	}
+
+	metadata := passwordUpgradeMetadataPayload(v5ResourceType, name, username, uri, description)
+
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return metadataUpgradeRequest{}, fmt.Errorf("marshal resource metadata: %w", err)
+	}
+
+	encryptedMetadata, err := client.Client.EncryptMetadata(publicMetadataKey, string(encodedMetadata))
+	if err != nil {
+		return metadataUpgradeRequest{}, err
+	}
+
+	return metadataUpgradeRequest{
+		ID:              resourceData.ID,
+		MetadataKeyID:   metadataKeyID,
+		MetadataKeyType: metadataKeyType,
+		Metadata:        encryptedMetadata,
+		Modified:        resourceData.Modified.Format(time.RFC3339),
+		ModifiedBy:      resourceData.ModifiedBy,
+	}, nil
+}
+
+func passwordUpgradeMetadataPayload(
+	v5ResourceType *api.ResourceType,
+	name string,
+	username string,
+	uri string,
+	description string,
+) passwordMetadataPayload {
+	metadata := passwordMetadataPayload{
+		ObjectType:     api.PassboltObjectTypeResourceMetadata,
+		ResourceTypeID: v5ResourceType.ID,
+		Name:           name,
+		Username:       username,
+		URIs:           []string{uri},
+	}
+
+	if v5ResourceType.Slug == "v5-password-string" {
+		metadata.Description = &description
+	}
+
+	return metadata
+}
+
+func passwordV5ResourceTypeForUpgrade(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	resourceType *api.ResourceType,
+) (*api.ResourceType, error) {
+	return findPassboltResourceTypeBySlug(ctx, client, passwordV5ResourceTypeSlugForUpgrade(resourceType))
+}
+
+func passwordV5ResourceTypeSlugForUpgrade(resourceType *api.ResourceType) string {
+	if resourceType.Slug == "password-string" {
+		return "v5-password-string"
+	}
+
+	return "v5-default"
+}
+
+func findPassboltResourceTypeBySlug(
+	ctx context.Context,
+	client *tools.PassboltClient,
+	slug string,
+) (*api.ResourceType, error) {
+	resourceTypes, err := client.Client.GetResourceTypes(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getting resource types: %w", err)
+	}
+
+	for i := range resourceTypes {
+		if resourceTypes[i].Slug == slug {
+			return &resourceTypes[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("cannot find resource type: %s", slug)
 }
 
 func updatePassboltPasswordResource(

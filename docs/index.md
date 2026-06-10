@@ -13,7 +13,7 @@ Supports Passbolt CE and PRO, self-hosted deployments, AWS SSM-backed secret wor
 
 ~> `passbolt_password` supports both legacy stateful passwords and Terraform 1.11+ write-only password inputs via `password_wo`.
 
-~> `passbolt_password` supports Passbolt v4 resources and v5 encrypted metadata resources. New resources follow the Passbolt server's default resource metadata type.
+~> `passbolt_password` and `passbolt_folder` support Passbolt v4 metadata and v5 encrypted metadata. Leave `metadata_type` unset to use server defaults, or set `metadata_type = "v5"` to explicitly create or upgrade a managed item to encrypted metadata.
 
 ## Quick Start
 

@@ -34,7 +34,7 @@ func resolveFolderReference(
 		return "", diags
 	}
 
-	folders, err := client.Client.GetFolders(ctx, nil)
+	folders, err := getPassboltFolders(ctx, client, nil)
 	if err != nil {
 		diags.AddError("Cannot get folders", err.Error())
 

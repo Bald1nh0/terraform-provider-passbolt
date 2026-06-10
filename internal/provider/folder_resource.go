@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/passbolt/go-passbolt/api"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -34,11 +33,13 @@ type folderResource struct {
 
 // created, modified, created_by, modified_by, and folder_parent_id
 type foldersModelCreate struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	FolderParent   types.String `tfsdk:"folder_parent"`
-	FolderParentID types.String `tfsdk:"folder_parent_id"`
-	Personal       types.Bool   `tfsdk:"personal"`
+	ID                 types.String `tfsdk:"id"`
+	Name               types.String `tfsdk:"name"`
+	FolderParent       types.String `tfsdk:"folder_parent"`
+	FolderParentID     types.String `tfsdk:"folder_parent_id"`
+	Personal           types.Bool   `tfsdk:"personal"`
+	MetadataType       types.String `tfsdk:"metadata_type"`
+	MetadataTypeActual types.String `tfsdk:"metadata_type_actual"`
 }
 
 // Configure adds the provider configured client to the resource.
@@ -93,7 +94,7 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"personal": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Whether the folder is a personal folder. Always false for Terraform-created folders.",
+				Description: "Whether Passbolt currently treats the folder as personal, meaning it is not shared.",
 			},
 
 			"folder_parent": schema.StringAttribute{
@@ -108,6 +109,19 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"folder_parent_id": schema.StringAttribute{
 				Computed:    true,
 				Description: "Resolved UUID of the parent folder.",
+			},
+			"metadata_type": schema.StringAttribute{
+				Optional: true,
+				Description: "Optional metadata format for this folder. Use `v5` to create or migrate the folder " +
+					"to encrypted metadata, `v4` to force legacy cleartext metadata on create, or leave unset to " +
+					"use the Passbolt server default without migrating existing folders.",
+				Validators: []validator.String{
+					stringvalidator.OneOf(metadataTypeV4, metadataTypeV5, metadataTypeServerDefault),
+				},
+			},
+			"metadata_type_actual": schema.StringAttribute{
+				Computed:    true,
+				Description: "Actual remote metadata format for this folder: `v4` or `v5`.",
 			},
 		},
 	}
@@ -135,11 +149,13 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	cFolder, errCreate := r.client.Client.CreateFolder(ctx, api.Folder{
-		FolderParentID: folderID,
-		Name:           plan.Name.ValueString(),
-		Personal:       false,
-	})
+	cFolder, metadataTypeActual, errCreate := createPassboltFolder(
+		ctx,
+		r.client,
+		folderID,
+		plan.Name.ValueString(),
+		desiredMetadataType(plan.MetadataType),
+	)
 	if errCreate != nil {
 		resp.Diagnostics.AddError("Error creating folder", "Could not create folder: "+errCreate.Error())
 
@@ -149,6 +165,7 @@ func (r *folderResource) Create(ctx context.Context, req resource.CreateRequest,
 	plan.ID = types.StringValue(cFolder.ID)
 	plan.FolderParentID = pickOptional(folderID)
 	plan.Personal = types.BoolValue(cFolder.Personal)
+	plan.MetadataTypeActual = types.StringValue(metadataTypeActual)
 
 	tflog.Info(ctx, "Created folder", map[string]any{
 		"id":       cFolder.ID,
@@ -168,7 +185,19 @@ func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	folders, err := r.client.Client.GetFolders(ctx, nil)
+	rawFolder, currentFolder, err := getPassboltFolder(ctx, r.client, state.ID.ValueString())
+	if err != nil {
+		if isNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+
+			return
+		}
+		resp.Diagnostics.AddError("Cannot get folder", err.Error())
+
+		return
+	}
+
+	folders, err := getPassboltFolders(ctx, r.client, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot get folders", err.Error())
 
@@ -176,12 +205,13 @@ func (r *folderResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	for _, f := range folders {
-		if f.ID == state.ID.ValueString() {
+		if f.ID == currentFolder.ID {
 			state.Name = types.StringValue(f.Name)
 			state.ID = types.StringValue(f.ID)
 			state.FolderParent = reconcileFolderParentReference(state.FolderParent, f.FolderParentID, folders)
 			state.FolderParentID = pickOptional(f.FolderParentID)
 			state.Personal = types.BoolValue(f.Personal)
+			state.MetadataTypeActual = types.StringValue(actualMetadataTypeFromEncryptedMetadata(rawFolder.Metadata))
 
 			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 
@@ -227,9 +257,13 @@ func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	_, err := r.client.Client.UpdateFolder(ctx, state.ID.ValueString(), api.Folder{
-		Name: plan.Name.ValueString(),
-	})
+	metadataTypeActual, err := updatePassboltFolder(
+		ctx,
+		r.client,
+		state.ID.ValueString(),
+		plan.Name.ValueString(),
+		desiredMetadataType(plan.MetadataType),
+	)
 	if err != nil {
 		tflog.Error(ctx, "Update: API update failed", map[string]any{
 			"error": err.Error(),
@@ -240,6 +274,7 @@ func (r *folderResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	plan = finalizeFolderPlan(plan, state, desiredParentID)
+	plan.MetadataTypeActual = types.StringValue(metadataTypeActual)
 
 	tflog.Info(ctx, "Update folder resource: applying state", map[string]any{
 		"id":       plan.ID.ValueString(),
