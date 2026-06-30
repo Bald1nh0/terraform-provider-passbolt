@@ -1,6 +1,6 @@
 # terraform-provider-passbolt
 
-Terraform provider for [Passbolt](https://www.passbolt.com). Manage users, groups, folders, passwords, and folder permissions with Terraform.
+Terraform provider for [Passbolt](https://www.passbolt.com). Manage users, groups, folders, passwords, and permissions with Terraform.
 
 Supports Passbolt CE/PRO, self-hosted deployments, AWS SSM-backed secret workflows, and Terraform-native onboarding/offboarding.
 
@@ -20,7 +20,7 @@ terraform {
   required_providers {
     passbolt = {
       source  = "Bald1nh0/passbolt"
-      version = "~> 1.6"
+      version = "~> 1.11"
     }
   }
 }
@@ -42,7 +42,7 @@ provider "passbolt" {
 
 ## Why this provider?
 
-- Manage Passbolt users, groups, folders, passwords, and folder permissions with Terraform.
+- Manage Passbolt users, groups, folders, passwords, and permissions with Terraform.
 - Support Passbolt CE and PRO deployments with the same provider.
 - Resolve `folder_parent` by unique folder name, folder UUID, or absolute path such as `/application_A/prod`.
 - Use exact `data.passbolt_user` lookups that return active users by default, with opt-in inactive lookups.
@@ -57,6 +57,7 @@ provider "passbolt" {
 - [`passbolt_group`](./docs/resources/group.md)
 - [`passbolt_folder`](./docs/resources/folder.md)
 - [`passbolt_password`](./docs/resources/password.md)
+- [`passbolt_password_permission`](./docs/resources/password_permission.md)
 - [`passbolt_folder_permission`](./docs/resources/folder_permission.md)
 
 ### Data sources
@@ -70,7 +71,7 @@ provider "passbolt" {
 
 - Onboard and offboard Passbolt users, roles, and groups with Terraform.
 - Sync application secrets from AWS SSM Parameter Store into Passbolt with either legacy or write-only secret flows.
-- Manage shared folders and group-based access for DevOps or platform teams.
+- Manage shared folders, password group access, and direct password user access for DevOps or platform teams.
 
 ## Requirements
 
@@ -193,6 +194,8 @@ resource "passbolt_password" "example" {
 }
 ```
 
+`share_groups` is a convenience shortcut for group sharing. Use `passbolt_password_permission` when you need an explicit permission level or direct user sharing.
+
 ### Optional: legacy stateful flow
 
 Use this only if you intentionally accept the Terraform state risk and want the old drift-detectable behavior.
@@ -240,6 +243,30 @@ resource "passbolt_password" "centrifugo_admin_password" {
 ```
 
 > _`password_wo` keeps the secret out of the `passbolt_password` state entry, but the upstream `data.aws_ssm_parameter` value is still stored in Terraform state. Use an ephemeral source or runtime secret injection if you need the full workflow to avoid state persistence._
+
+---
+
+## Resource: passbolt_password_permission
+
+Share a Passbolt password with a group or a user using an explicit permission level.
+
+```hcl
+resource "passbolt_password_permission" "devops_group_update" {
+  resource_id = passbolt_password.example.id
+  group_name  = "DevOps"
+  permission  = "update"
+}
+
+resource "passbolt_password_permission" "operator_read" {
+  resource_id = passbolt_password.example.id
+  username    = "operator@example.com"
+  permission  = "read"
+}
+```
+
+- **permission**: `"read"` = read-only, `"update"` = edit, `"owner"` = full/admin rights
+- Exactly one of `group_name` or `username` must be set.
+- To revoke sharing, remove the resource from your configuration.
 
 ---
 

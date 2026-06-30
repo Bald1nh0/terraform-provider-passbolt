@@ -1,9 +1,12 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -28,6 +31,52 @@ func TestActualMetadataTypeFromEncryptedMetadata(t *testing.T) {
 
 	if got := actualMetadataTypeFromEncryptedMetadata("-----BEGIN PGP MESSAGE-----"); got != metadataTypeV5 {
 		t.Fatalf("expected encrypted metadata to be %q, got %q", metadataTypeV5, got)
+	}
+}
+
+func TestMetadataTypeActualUsesStateForUnknown(t *testing.T) {
+	t.Parallel()
+
+	resources := map[string]resource.Resource{
+		"password": NewPasswordResource(),
+		"folder":   NewFolderResource(),
+	}
+
+	for name, terraformResource := range resources {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var resp resource.SchemaResponse
+			terraformResource.Schema(context.Background(), resource.SchemaRequest{}, &resp)
+
+			assertMetadataTypeActualPlanModifier(t, resp.Schema.Attributes)
+		})
+	}
+}
+
+func assertMetadataTypeActualPlanModifier(t *testing.T, attributes map[string]schema.Attribute) {
+	t.Helper()
+
+	attr, ok := attributes["metadata_type_actual"]
+	if !ok {
+		t.Fatal("expected metadata_type_actual attribute")
+	}
+
+	stringAttr, ok := attr.(schema.StringAttribute)
+	if !ok {
+		t.Fatalf("expected metadata_type_actual to be a string attribute, got %T", attr)
+	}
+	if !stringAttr.Computed {
+		t.Fatal("expected metadata_type_actual to be computed")
+	}
+	if len(stringAttr.PlanModifiers) != 1 {
+		t.Fatalf("expected one metadata_type_actual plan modifier, got %d", len(stringAttr.PlanModifiers))
+	}
+
+	wantDescription := "Once set, the value of this attribute in state will not change."
+	gotDescription := stringAttr.PlanModifiers[0].Description(context.Background())
+	if gotDescription != wantDescription {
+		t.Fatalf("expected UseStateForUnknown plan modifier, got %q", gotDescription)
 	}
 }
 

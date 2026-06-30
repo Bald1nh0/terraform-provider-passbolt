@@ -161,6 +161,7 @@ func (p *passboltProvider) Resources(_ context.Context) []func() resource.Resour
 	return []func() resource.Resource{
 		NewFolderResource,
 		NewPasswordResource,
+		NewPasswordPermissionResource,
 		NewFolderPermissionResource,
 		NewGroupResource,
 		NewUserResource,
