@@ -72,6 +72,144 @@ func TestAccPasswordResource_writeOnly(t *testing.T) {
 	})
 }
 
+func TestAccPasswordResource_metadataTypeUpgrade(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	requireResourceMetadataUpgradeEnabled(t, baseURL, privateKey, passphrase)
+
+	suffix := testAccSuffix()
+	passwordName := testAccName("acc-test-metadata-upgrade", suffix)
+	configV4 := testPasswordMetadataTypeConfig(baseURL, privateKey, passphrase, passwordName, "v4")
+	configV5 := testPasswordMetadataTypeConfig(baseURL, privateKey, passphrase, passwordName, "v5")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configV4,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type", "v4"),
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type_actual", "v4"),
+				),
+			},
+			{
+				Config: configV5,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type", "v5"),
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type_actual", "v5"),
+				),
+			},
+			{
+				Config:   configV5,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+func TestAccPasswordResource_metadataTypeV5NoDrift(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	requireResourceMetadataV5CreationEnabled(t, baseURL, privateKey, passphrase)
+
+	suffix := testAccSuffix()
+	passwordName := testAccName("acc-test-metadata-v5", suffix)
+	config := testPasswordMetadataTypeConfig(baseURL, privateKey, passphrase, passwordName, "v5")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type", "v5"),
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type_actual", "v5"),
+				),
+			},
+			{
+				Config:   config,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+func TestAccPasswordResource_metadataTypeV4NoDrift(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE")
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	suffix := testAccSuffix()
+	passwordName := testAccName("acc-test-metadata-v4", suffix)
+	config := testPasswordMetadataTypeConfig(baseURL, privateKey, passphrase, passwordName, "v4")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type", "v4"),
+					resource.TestCheckResourceAttr("passbolt_password.example", "metadata_type_actual", "v4"),
+				),
+			},
+			{
+				Config:   config,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
+func requireResourceMetadataUpgradeEnabled(t *testing.T, baseURL, privateKey, passphrase string) {
+	t.Helper()
+
+	settings := requireResourceMetadataSettings(t, baseURL, privateKey, passphrase)
+	if !settings.AllowV4V5Upgrade {
+		t.Skip("Passbolt server disables v4 to v5 metadata upgrades")
+	}
+}
+
+func requireResourceMetadataV5CreationEnabled(t *testing.T, baseURL, privateKey, passphrase string) {
+	t.Helper()
+
+	settings := requireResourceMetadataSettings(t, baseURL, privateKey, passphrase)
+	if !settings.AllowCreationOfV5Resources {
+		t.Skip("Passbolt server disables v5 resource creation")
+	}
+}
+
+func requireResourceMetadataSettings(t *testing.T, baseURL, privateKey, passphrase string) api.MetadataTypeSettings {
+	t.Helper()
+
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		t.Fatalf("failed to create Passbolt API client: %v", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		t.Fatalf("failed to log in to Passbolt API: %v", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	return client.MetadataTypeSettings()
+}
+
 func testStepCreatePassword(baseURL, privateKey, passphrase, name string) resource.TestStep {
 	return resource.TestStep{
 		Config: testPasswordConfig(
@@ -408,6 +546,26 @@ resource "passbolt_password" "example" {
   password = "%s"
 }
 `, baseURL, privateKey, passphrase, name, username, uri, password)
+}
+
+func testPasswordMetadataTypeConfig(baseURL, privateKey, passphrase, name, metadataType string) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_password" "example" {
+  name          = "%s"
+  username      = "metadata-upgrade-user"
+  uri           = "https://metadata-upgrade.example.com"
+  password      = "metadata-upgrade-secret"
+  metadata_type = "%s"
+}
+`, baseURL, privateKey, passphrase, name, metadataType)
 }
 
 func testPasswordWriteOnlyConfig(
