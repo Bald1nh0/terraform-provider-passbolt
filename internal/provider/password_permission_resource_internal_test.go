@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -158,6 +159,37 @@ func TestPasswordPermissionID(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
+}
+
+func TestPasswordPermissionReadErrorTreatsMissingResourceAsNotFound(t *testing.T) {
+	t.Parallel()
+
+	err := passwordPermissionReadError(passboltMissingResourceTestError{})
+	if !errors.Is(err, errPasswordPermissionNotFound) {
+		t.Fatalf("expected password permission not found error, got %v", err)
+	}
+}
+
+func TestPasswordPermissionReadErrorWrapsOtherErrors(t *testing.T) {
+	t.Parallel()
+
+	apiErr := errors.New("permission API unavailable")
+	err := passwordPermissionReadError(apiErr)
+	if errors.Is(err, errPasswordPermissionNotFound) {
+		t.Fatalf("unexpected password permission not found error")
+	}
+	if !errors.Is(err, apiErr) {
+		t.Fatalf("expected original error to be wrapped, got %v", err)
+	}
+	if got := fmt.Sprint(err); got != "getting resource permissions: permission API unavailable" {
+		t.Fatalf("unexpected error message %q", got)
+	}
+}
+
+type passboltMissingResourceTestError struct{}
+
+func (passboltMissingResourceTestError) Error() string {
+	return "API error (code 404): The resource does not exist."
 }
 
 func TestPasswordPermissionIdentityAttributesRequireReplace(t *testing.T) {

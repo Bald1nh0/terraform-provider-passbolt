@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/passbolt/go-passbolt/api"
+	"github.com/passbolt/go-passbolt/helper"
 )
 
 func TestAccPasswordPermissionResource_group(t *testing.T) {
@@ -89,6 +90,77 @@ func TestAccPasswordPermissionResource_user(t *testing.T) {
 			configUpdate,
 		),
 	})
+}
+
+func TestAccPasswordPermissionResource_missingPasswordRemovesState(t *testing.T) {
+	t.Parallel()
+
+	requireAcceptanceEnv(t, "PASSBOLT_BASE_URL", "PASSBOLT_PRIVATE_KEY", "PASSBOLT_PASSPHRASE", "PASSBOLT_MANAGER_ID")
+
+	baseURL := os.Getenv("PASSBOLT_BASE_URL")
+	privateKey := os.Getenv("PASSBOLT_PRIVATE_KEY")
+	passphrase := os.Getenv("PASSBOLT_PASSPHRASE")
+	managerID := os.Getenv("PASSBOLT_MANAGER_ID")
+	suffix := testAccSuffix()
+	passwordName := testAccName("acc-password-permission-missing", suffix)
+	groupName := testAccName("acc-password-permission-missing", suffix)
+	resourceID := testCreatePassboltPasswordOutOfBand(t, baseURL, privateKey, passphrase, passwordName)
+	config := testExternalPasswordGroupPermissionConfig(
+		baseURL,
+		privateKey,
+		passphrase,
+		managerID,
+		groupName,
+		resourceID,
+		"read",
+	)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []resource.TestStep{
+			testStepExternalPasswordPermissionRead(
+				baseURL,
+				privateKey,
+				passphrase,
+				groupName,
+				resourceID,
+				config,
+			),
+			{
+				PreConfig: func() {
+					testDeletePassboltResource(t, baseURL, privateKey, passphrase, resourceID)
+				},
+				Config: testPassboltProviderConfig(baseURL, privateKey, passphrase),
+			},
+		},
+	})
+}
+
+func testStepExternalPasswordPermissionRead(
+	baseURL,
+	privateKey,
+	passphrase,
+	groupName,
+	resourceID,
+	config string,
+) resource.TestStep {
+	return resource.TestStep{
+		Config: config,
+		Check: resource.ComposeTestCheckFunc(
+			resource.TestCheckResourceAttr("passbolt_password_permission.group", "resource_id", resourceID),
+			resource.TestCheckResourceAttr("passbolt_password_permission.group", "group_name", groupName),
+			resource.TestCheckResourceAttr("passbolt_password_permission.group", "permission", "read"),
+			testCheckPasswordPermissionTypeForResourceID(
+				baseURL,
+				privateKey,
+				passphrase,
+				resourceID,
+				"passbolt_group.target",
+				"Group",
+				1,
+			),
+		),
+	}
 }
 
 func testPasswordGroupPermissionSteps(
@@ -267,6 +339,37 @@ resource "passbolt_password_permission" "group" {
 	`, baseURL, privateKey, passphrase, groupName, managerID, passwordName, permission)
 }
 
+func testExternalPasswordGroupPermissionConfig(
+	baseURL,
+	privateKey,
+	passphrase,
+	managerID,
+	groupName,
+	resourceID,
+	permission string,
+) string {
+	return fmt.Sprintf(`
+provider "passbolt" {
+  base_url    = "%s"
+  private_key = <<EOF
+%s
+EOF
+  passphrase  = "%s"
+}
+
+resource "passbolt_group" "target" {
+  name     = "%s"
+  managers = ["%s"]
+}
+
+resource "passbolt_password_permission" "group" {
+  resource_id = "%s"
+  group_name  = passbolt_group.target.name
+  permission  = "%s"
+}
+`, baseURL, privateKey, passphrase, groupName, managerID, resourceID, permission)
+}
+
 func testPasswordUserPermissionConfig(
 	baseURL,
 	privateKey,
@@ -326,6 +429,33 @@ func testCheckPasswordPermissionTypeFromState(
 	}
 }
 
+func testCheckPasswordPermissionTypeForResourceID(
+	baseURL,
+	privateKey,
+	passphrase,
+	resourceID,
+	targetResourceAddress,
+	aro string,
+	expectedType int,
+) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		target, ok := state.RootModule().Resources[targetResourceAddress]
+		if !ok {
+			return fmt.Errorf("%s not found in Terraform state", targetResourceAddress)
+		}
+
+		return checkPasswordPermissionType(
+			baseURL,
+			privateKey,
+			passphrase,
+			resourceID,
+			target.Primary.ID,
+			aro,
+			expectedType,
+		)
+	}
+}
+
 func testCheckPasswordPermissionType(
 	baseURL,
 	privateKey,
@@ -346,43 +476,119 @@ func testCheckPasswordPermissionType(
 			return fmt.Errorf("%s id is empty", passwordResourceAddress)
 		}
 
-		ctx := context.Background()
-		client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
-		if err != nil {
-			return fmt.Errorf("failed to create Passbolt API client: %w", err)
-		}
-		if err := client.Login(ctx); err != nil {
-			return fmt.Errorf("failed to log in to Passbolt API: %w", err)
-		}
-		defer func() {
-			_ = client.Logout(ctx)
-		}()
-
-		permissions, err := client.GetResourcePermissions(ctx, resourceID)
-		if err != nil {
-			return fmt.Errorf("failed to get resource permissions: %w", err)
-		}
-
-		for _, permission := range permissions {
-			if permission.ARO != aro || permission.AROForeignKey != targetID {
-				continue
-			}
-
-			if permission.Type != expectedType {
-				return fmt.Errorf(
-					"expected %s permission for %s to be type %d, got %d",
-					aro,
-					targetID,
-					expectedType,
-					permission.Type,
-				)
-			}
-
-			return nil
-		}
-
-		return fmt.Errorf("expected %s permission for %s on resource %s", aro, targetID, resourceID)
+		return checkPasswordPermissionType(baseURL, privateKey, passphrase, resourceID, targetID, aro, expectedType)
 	}
+}
+
+func checkPasswordPermissionType(
+	baseURL,
+	privateKey,
+	passphrase,
+	resourceID,
+	targetID,
+	aro string,
+	expectedType int,
+) error {
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to create Passbolt API client: %w", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("failed to log in to Passbolt API: %w", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	permissions, err := client.GetResourcePermissions(ctx, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to get resource permissions: %w", err)
+	}
+
+	for _, permission := range permissions {
+		if permission.ARO != aro || permission.AROForeignKey != targetID {
+			continue
+		}
+
+		if permission.Type != expectedType {
+			return fmt.Errorf(
+				"expected %s permission for %s to be type %d, got %d",
+				aro,
+				targetID,
+				expectedType,
+				permission.Type,
+			)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("expected %s permission for %s on resource %s", aro, targetID, resourceID)
+}
+
+func testCreatePassboltPasswordOutOfBand(t *testing.T, baseURL, privateKey, passphrase, name string) string {
+	t.Helper()
+
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		t.Fatalf("failed to create Passbolt API client: %v", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		t.Fatalf("failed to log in to Passbolt API: %v", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	resourceID, err := helper.CreateResource(
+		ctx,
+		client,
+		"",
+		name,
+		"out-of-band-user",
+		"https://out-of-band-password.example.com",
+		"out-of-band-secret",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("failed to create Passbolt resource out-of-band: %v", err)
+	}
+
+	t.Cleanup(func() {
+		testDeletePassboltResourceIfExists(baseURL, privateKey, passphrase, resourceID)
+	})
+
+	return resourceID
+}
+
+func testDeletePassboltResource(t *testing.T, baseURL, privateKey, passphrase, resourceID string) {
+	t.Helper()
+
+	if err := deletePassboltResource(baseURL, privateKey, passphrase, resourceID); err != nil {
+		t.Fatalf("failed to delete Passbolt resource %s out-of-band: %v", resourceID, err)
+	}
+}
+
+func testDeletePassboltResourceIfExists(baseURL, privateKey, passphrase, resourceID string) {
+	_ = deletePassboltResource(baseURL, privateKey, passphrase, resourceID)
+}
+
+func deletePassboltResource(baseURL, privateKey, passphrase, resourceID string) error {
+	ctx := context.Background()
+	client, err := api.NewClient(nil, "", baseURL, privateKey, passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to create Passbolt API client: %w", err)
+	}
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("failed to log in to Passbolt API: %w", err)
+	}
+	defer func() {
+		_ = client.Logout(ctx)
+	}()
+
+	return client.DeleteResource(ctx, resourceID)
 }
 
 func testAccPasswordPermissionUserID(t *testing.T, baseURL, privateKey, passphrase, username string) string {

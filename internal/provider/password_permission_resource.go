@@ -408,7 +408,7 @@ func readPasswordPermission(
 ) (string, error) {
 	permissions, err := client.Client.GetResourcePermissions(ctx, resourceID)
 	if err != nil {
-		return "", fmt.Errorf("getting resource permissions: %w", err)
+		return "", passwordPermissionReadError(err)
 	}
 
 	for _, permission := range permissions {
@@ -425,6 +425,14 @@ func readPasswordPermission(
 	}
 
 	return "", errPasswordPermissionNotFound
+}
+
+func passwordPermissionReadError(err error) error {
+	if isNotFoundError(err) {
+		return errPasswordPermissionNotFound
+	}
+
+	return fmt.Errorf("getting resource permissions: %w", err)
 }
 
 func passwordPermissionStringToInt(permission string) (int, error) {
