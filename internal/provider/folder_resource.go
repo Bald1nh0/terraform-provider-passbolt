@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"terraform-provider-passbolt/tools"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -120,8 +121,9 @@ func (r *folderResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"metadata_type_actual": schema.StringAttribute{
-				Computed:    true,
-				Description: "Actual remote metadata format for this folder: `v4` or `v5`.",
+				Computed:      true,
+				Description:   "Actual remote metadata format for this folder: `v4` or `v5`.",
+				PlanModifiers: metadataTypeActualPlanModifiers(),
 			},
 		},
 	}
@@ -342,5 +344,12 @@ func finalizeFolderPlan(plan, state foldersModelCreate, desiredParentID string) 
 }
 
 func isNotFoundError(err error) bool {
-	return err != nil && (err.Error() == "The folder does not exist." || err.Error() == "The resource does not exist.")
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+
+	return strings.Contains(message, "The folder does not exist.") ||
+		strings.Contains(message, "The resource does not exist.")
 }

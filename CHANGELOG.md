@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.11.0 — 2026-06-30
+
+### ✨ Added
+
+- Added `passbolt_password_permission` to manage explicit password/resource grants for groups and users with `read`, `update`, or `owner` access.
+- Added password permission import support with `resource_id:group:group_name` and `resource_id:user:username` import IDs.
+
+### 🛠 Fixed
+
+- Prevented `metadata_type_actual` from showing as an unknown planned value on unchanged `passbolt_password` and `passbolt_folder` resources.
+
 ## v1.10.0 — 2026-06-10
 
 ### ✨ Added

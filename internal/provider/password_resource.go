@@ -179,8 +179,9 @@ func passwordResourceCoreAttributes() map[string]schema.Attribute {
 			},
 		},
 		"metadata_type_actual": schema.StringAttribute{
-			Computed:    true,
-			Description: "Actual remote metadata format for this password: `v4` or `v5`.",
+			Computed:      true,
+			Description:   "Actual remote metadata format for this password: `v4` or `v5`.",
+			PlanModifiers: metadataTypeActualPlanModifiers(),
 		},
 	}
 }
